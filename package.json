@@ -16,7 +16,7 @@
     "sbom": "cyclonedx-npm --output-file dist/bom.json --spec-version 1.6",
     "preview": "electron-vite preview",
     "lint": "tsc --noEmit",
-    "test": "vitest run tests",
+    "test": "vitest run --dir tests",
     "smoke:packaged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1",
     "finalize:release": "node scripts/finalize-release.mjs"
   },
