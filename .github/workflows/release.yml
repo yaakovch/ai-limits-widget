@@ -1,0 +1,133 @@
+name: Signed Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  actions: read
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release:
+    runs-on: windows-2025
+    environment: release
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 26
+          cache: npm
+      - name: Validate tag and main ancestry
+        shell: pwsh
+        run: |
+          node scripts/validate-release.mjs "${{ github.ref_name }}"
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag must point to main history.' }
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Build unpacked application
+        run: npx electron-builder --win dir --x64 --publish never
+      - name: Prepare unpacked application for signing
+        shell: pwsh
+        run: Compress-Archive -Path dist/win-unpacked -DestinationPath dist/unsigned-app.zip -CompressionLevel Optimal
+      - id: upload-app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-app
+          path: dist/unsigned-app.zip
+      - name: Sign unpacked application with SignPath
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY }}
+          artifact-configuration-slug: ${{ secrets.SIGNPATH_APP_ARTIFACT_CONFIGURATION }}
+          github-artifact-id: ${{ steps.upload-app.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signed-app-artifact
+      - name: Locate signed unpacked application
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/signed-app-artifact -Recurse -Filter *.zip | Select-Object -First 1
+          if ($zip) { Expand-Archive $zip.FullName dist/signed-app -Force }
+          else { Copy-Item dist/signed-app-artifact dist/signed-app -Recurse -Force }
+          $app = Get-ChildItem dist/signed-app -Recurse -Directory | Where-Object Name -eq 'win-unpacked' | Select-Object -First 1
+          if (-not $app) { throw 'Signed win-unpacked directory was not returned by SignPath.' }
+          "SIGNED_APP_DIR=$($app.FullName)" | Out-File $env:GITHUB_ENV -Append
+      - name: Package signed application
+        shell: pwsh
+        run: npx electron-builder --prepackaged "$env:SIGNED_APP_DIR" --win nsis portable --x64 --publish never
+      - name: Prepare final executables for signing
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/AI-Limits-Widget-*-Setup-x64.exe,dist/AI-Limits-Widget-*-Portable-x64.exe -DestinationPath dist/unsigned-release.zip -CompressionLevel Optimal
+      - id: upload-release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: unsigned-release
+          path: dist/unsigned-release.zip
+      - name: Sign final release executables with SignPath
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY }}
+          artifact-configuration-slug: ${{ secrets.SIGNPATH_RELEASE_ARTIFACT_CONFIGURATION }}
+          github-artifact-id: ${{ steps.upload-release.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signed-release-artifact
+      - name: Replace unsigned release files
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/signed-release-artifact -Recurse -Filter *.zip | Select-Object -First 1
+          if ($zip) { Expand-Archive $zip.FullName dist/signed-release -Force }
+          else { Copy-Item dist/signed-release-artifact dist/signed-release -Recurse -Force }
+          Get-ChildItem dist/signed-release -Recurse -Filter *.exe | ForEach-Object { Copy-Item $_.FullName (Join-Path 'dist' $_.Name) -Force }
+      - run: npm run sbom
+      - run: npm run finalize:release
+      - name: Verify signatures and release files
+        shell: pwsh
+        run: |
+          ./scripts/verify-signatures.ps1
+          Get-Item dist/latest.yml,dist/SHA256SUMS.txt,dist/bom.json | Out-Null
+      - uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
+        with:
+          subject-path: |
+            dist/AI-Limits-Widget-*-Setup-x64.exe
+            dist/AI-Limits-Widget-*-Portable-x64.exe
+            dist/SHA256SUMS.txt
+            dist/bom.json
+      - name: Create draft GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+            (Get-ChildItem dist/AI-Limits-Widget-*-Setup-x64.exe).FullName,
+            (Get-ChildItem dist/AI-Limits-Widget-*-Portable-x64.exe).FullName,
+            (Get-ChildItem dist/AI-Limits-Widget-*-Setup-x64.exe.blockmap).FullName,
+            (Resolve-Path dist/latest.yml).Path,
+            (Resolve-Path dist/SHA256SUMS.txt).Path,
+            (Resolve-Path dist/bom.json).Path
+          )
+          $releaseArgs = @('release', 'create', '${{ github.ref_name }}') + $assets + @(
+            '--draft',
+            '--generate-notes',
+            '--title',
+            'AI Limits Widget ${{ github.ref_name }}'
+          )
+          if ('${{ github.ref_name }}' -match '-') { $releaseArgs += '--prerelease' }
+          gh @releaseArgs

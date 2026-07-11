@@ -1,0 +1,51 @@
+appId: com.yaakovch.ailimitswidget
+productName: AI Limits Widget
+executableName: AI Limits Widget
+copyright: Copyright © 2026 Yaakov Chen Zion
+asar: true
+compression: maximum
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - "**/*"
+  - from: scripts/claude-statusline.ps1
+    to: scripts/claude-statusline.ps1
+afterPack: build/afterPack.cjs
+forceCodeSigning: false
+win:
+  icon: resources/app-icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  signtoolOptions:
+    publisherName:
+      - SignPath Foundation
+  verifyUpdateCodeSignature: true
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: AI Limits Widget
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh
+  artifactName: AI-Limits-Widget-${version}-Setup-${arch}.${ext}
+portable:
+  artifactName: AI-Limits-Widget-${version}-Portable-${arch}.${ext}
+publish:
+  provider: github
+  owner: yaakovch
+  repo: ai-limits-widget
+  releaseType: draft

@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible problem without including authentication data.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.9.0-beta.1
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build type
+      options: [Installed, Portable, Development]
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include expected behavior and exact reproduction steps. Do not paste tokens.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Attach an app-generated diagnostics ZIP only after reviewing its local paths and settings.
