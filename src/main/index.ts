@@ -42,6 +42,7 @@ import {
 } from './settings-store';
 import { LimitStateManager } from './state-manager';
 import { FleetBridgeSupervisor, fleetBridgeLaunchFromSettings } from './fleet-bridge';
+import { openFleetTerminal } from './fleet-terminal';
 import type { FleetBridgeView } from '../shared/fleet-protocol';
 import { UpdaterManager } from './updater';
 import { applyInteractionMode } from './window-mode';
@@ -87,7 +88,11 @@ function createFleetBridge(): FleetBridgeSupervisor {
     launch: fleetBridgeLaunchFromSettings(appSettings),
     logger
   });
-  bridge.on('changed', () => broadcast(IPC_CHANNELS.fleetStateUpdated, getFleetView()));
+  bridge.on('changed', () => {
+    broadcast(IPC_CHANNELS.fleetStateUpdated, getFleetView());
+    updateTrayMenu();
+    updateTrayTooltip();
+  });
   return bridge;
 }
 
@@ -244,15 +249,23 @@ function updateTrayMenu(): void {
   if (!tray) return;
   const isActive = interactionMode === 'active';
   const updateState = updater?.getState();
+  const fleet = getFleetView().snapshot;
+  const recentSessions: Electron.MenuItemConstructorOptions[] = fleet.sessions.slice(0, 5).map((fleetSession) => {
+    const host = fleet.hosts.find((item) => item.id === fleetSession.hostId);
+    return {
+      label: `${host?.name ?? fleetSession.hostId} · ${fleetSession.name}`,
+      click: () => void openFleetSessionById(fleetSession.id)
+    };
+  });
+  if (!recentSessions.length) recentSessions.push({ label: 'No sessions available', enabled: false });
+  const pendingSchedules = fleet.schedules.filter((item) => item.status === 'pending').length;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Open Agent Fleet', click: () => showDashboard() },
       { type: 'separator' as const },
       { label: 'Recent sessions', enabled: false },
-      { label: '  work-m · wtmux', click: () => showDashboard() },
-      { label: '  home-m · client', click: () => showDashboard() },
-      { label: 'Favorite: wtmux · Codex 2', click: () => showDashboard() },
-      { label: 'Pending messages: 2', click: () => showDashboard() },
+      ...recentSessions,
+      { label: `Scheduled messages: ${pendingSchedules}`, click: () => showDashboard() },
       { type: 'separator' as const },
       {
         label: isActive ? 'Make limits overlay passive' : 'Make limits overlay active',
@@ -266,7 +279,7 @@ function updateTrayMenu(): void {
           updateTrayMenu();
         }
       },
-      { label: 'Refresh fleet', click: () => void stateManager.refreshAll() },
+      { label: 'Refresh fleet', click: () => { fleetBridge.refresh(); void stateManager.refreshAll(); } },
       { label: 'Pause notifications for 1 hour', click: () => showDashboard() },
       { label: 'Settings', click: () => createSettingsWindow() },
       ...(!appSettings.onboardingComplete
@@ -300,9 +313,11 @@ function updateTrayMenu(): void {
 
 function updateTrayTooltip(state: CombinedLimitState = stateManager.getState()): void {
   if (!tray) return;
+  const fleet = getFleetView().snapshot;
+  const healthyHosts = fleet.hosts.filter((host) => host.status === 'healthy').length;
   const worst = findWorstLimit(state);
-  const detail = worst ? `${worst.label}: ${formatTooltipPercent(worst.remaining)} left` : 'waiting for limit data';
-  tray.setToolTip(`${PRODUCT_NAME} (${interactionMode}) - ${detail}`);
+  const limitDetail = worst ? `${worst.label} ${formatTooltipPercent(worst.remaining)} left` : 'limits pending';
+  tray.setToolTip(`${PRODUCT_NAME} · ${healthyHosts}/${fleet.hosts.length} hosts · ${fleet.sessions.length} sessions · ${limitDetail}`);
 }
 
 function findWorstLimit(state: CombinedLimitState): { label: string; remaining: number } | null {
@@ -430,6 +445,28 @@ handle(IPC_CHANNELS.refreshFleet, () => {
   fleetBridge.refresh();
   return getFleetView();
 });
+handle(IPC_CHANNELS.openFleetSession, async (_event, sessionId) => {
+  if (typeof sessionId !== 'string') return { ok: false, message: 'Session is invalid' };
+  return openFleetSessionById(sessionId);
+});
+
+async function openFleetSessionById(sessionId: string): Promise<{ ok: boolean; message: string }> {
+  const session = getFleetView().snapshot.sessions.find((item) => item.id === sessionId);
+  if (!session || !session.internalName) return { ok: false, message: 'Session is no longer available' };
+  try {
+    await openFleetTerminal({
+      id: session.id,
+      hostId: session.hostId,
+      project: session.project,
+      sessionName: session.internalName,
+      label: session.name
+    }, fleetBridgeLaunchFromSettings(appSettings).distro);
+    return { ok: true, message: `Opening ${session.name}` };
+  } catch (error) {
+    logger.warn('Could not open fleet session terminal', error);
+    return { ok: false, message: 'Windows Terminal could not be opened' };
+  }
+}
 handle(IPC_CHANNELS.getSettings, () => getSettingsResult());
 handle(IPC_CHANNELS.saveSettings, (_event, input) => applyAndPersistSettings(normalizeSettings(input).settings));
 handle(IPC_CHANNELS.testCodexProfile, async (_event, profile) => {

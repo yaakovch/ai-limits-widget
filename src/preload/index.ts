@@ -18,6 +18,8 @@ const api = {
   refreshNow: (): Promise<CombinedLimitState> => ipcRenderer.invoke(IPC_CHANNELS.refreshNow),
   getFleetState: (): Promise<FleetBridgeView> => ipcRenderer.invoke(IPC_CHANNELS.getFleetState),
   refreshFleet: (): Promise<FleetBridgeView> => ipcRenderer.invoke(IPC_CHANNELS.refreshFleet),
+  openFleetSession: (sessionId: string): Promise<{ ok: boolean; message: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.openFleetSession, sessionId),
   getSettings: (): Promise<SettingsLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.getSettings),
   saveSettings: (settings: WidgetSettings): Promise<SettingsLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.saveSettings, settings),
   testCodexProfile: (profile: CodexProfileSettings): Promise<{ ok: boolean; message: string }> =>

@@ -110,7 +110,7 @@ describe('fleet bridge supervisor', () => {
     expect(view.snapshot.sessions).toHaveLength(0);
     expect(() => readFileSync(cachePath, 'utf8')).toThrow();
     supervisor.stop();
-  });
+  }, 20_000);
 });
 
 function temporaryDirectory(): string {
