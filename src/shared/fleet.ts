@@ -21,6 +21,7 @@ export interface FleetHost {
 export interface FleetSession {
   id: string;
   hostId: string;
+  internalName?: string;
   name: string;
   title: string;
   project: string;

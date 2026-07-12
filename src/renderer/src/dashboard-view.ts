@@ -221,7 +221,12 @@ export class DashboardPrototype {
       this.render();
       return true;
     }
-    if (action === 'dashboard-open-session') return this.showToast('Opening session in the configured local terminal');
+    if (action === 'dashboard-open-session') {
+      const session = this.sessionFromControl(control);
+      if (!session) return this.showToast('Session is no longer available');
+      void window.limitsWidget.openFleetSession(session.id).then((result) => this.showToast(result.message));
+      return true;
+    }
     if (action === 'dashboard-copy') return this.showToast('Attach command copied');
     if (action === 'dashboard-launch') return this.showToast('Launcher request validated; live execution is intentionally not wired at Gate 1');
     if (action === 'dashboard-new-schedule') return this.showToast('New schedule editor opened in prototype mode');
@@ -276,7 +281,7 @@ export class DashboardPrototype {
       <div><h1>${titles[this.view][0]}</h1><p>${titles[this.view][1]}</p></div>
       <div class="fleet-header-actions">
         <div class="header-quick-actions">
-          <button class="quiet-button" data-action="dashboard-new-schedule">${icon('calendar-clock')}Schedule</button>
+          <button class="quiet-button" data-action="dashboard-nav" data-view="schedules">${icon('calendar-clock')}Schedules</button>
           <button class="primary-button" data-action="dashboard-nav" data-view="launcher">${icon('plus')}New session</button>
         </div>
         <button class="fleet-icon-button notification-button" data-action="dashboard-attention" title="Notifications">${icon('bell')}${this.snapshot.attention.length ? `<span>${this.snapshot.attention.length}</span>` : ''}</button>
@@ -359,7 +364,7 @@ export class DashboardPrototype {
           ${selectField('Codex profile', 'codex2', ['codex2', 'codex3', 'Default'])}
           <label>Session name<input value="fleet-dashboard" maxlength="64"><small>Preview: work-m · wtmux · fleet-dashboard</small></label>
         </div>
-        <div class="launcher-summary"><span class="tool-icon">${icon('terminal')}</span><div><strong>Codex in wtmux</strong><p>work-m · WSL · /home/user/projects/wtmux · profile codex2</p></div><button class="primary-button" data-action="dashboard-launch" ${this.scenario === 'live' ? '' : 'disabled'}>${icon('rocket')}Launch session</button></div>
+        <div class="launcher-summary"><span class="tool-icon">${icon('terminal')}</span><div><strong>Codex in wtmux</strong><p>work-m · WSL · /home/user/projects/wtmux · profile codex2</p></div><button class="primary-button" disabled title="Launcher mutations are coming in the next beta">${icon('rocket')}Coming next</button></div>
       </section>
       <aside class="dashboard-stack">
         <section class="fleet-card"><div class="card-heading"><div><h2>Favorites</h2><p>Synced launcher presets</p></div>${icon('star')}</div><div class="favorite-list">${this.snapshot.favorites.map((favorite) => `<button data-action="dashboard-favorite"><span class="tool-icon">${toolIcon(favorite.tool)}</span><span><strong>${escapeHtml(favorite.name)}</strong><small>${escapeHtml(favorite.hostId)} · ${escapeHtml(favorite.project)}</small></span>${icon('chevron-right')}</button>`).join('')}</div></section>
@@ -371,7 +376,7 @@ export class DashboardPrototype {
   private renderSchedules(): string {
     const schedules = this.snapshot.schedules.filter((schedule) => this.scheduleTab === 'pending' ? schedule.status === 'pending' : schedule.status !== 'pending');
     return `<div class="dashboard-stack">
-      <div class="view-toolbar"><div class="segmented"><button class="${this.scheduleTab === 'pending' ? 'active' : ''}" data-action="schedule-tab" data-tab="pending">Pending <b>${this.snapshot.schedules.filter((item) => item.status === 'pending').length}</b></button><button class="${this.scheduleTab === 'history' ? 'active' : ''}" data-action="schedule-tab" data-tab="history">30-day history</button></div><span class="toolbar-spacer"></span><button class="primary-button" data-action="dashboard-new-schedule" ${this.scenario === 'live' ? '' : 'disabled'}>${icon('plus')}Schedule message</button></div>
+      <div class="view-toolbar"><div class="segmented"><button class="${this.scheduleTab === 'pending' ? 'active' : ''}" data-action="schedule-tab" data-tab="pending">Pending <b>${this.snapshot.schedules.filter((item) => item.status === 'pending').length}</b></button><button class="${this.scheduleTab === 'history' ? 'active' : ''}" data-action="schedule-tab" data-tab="history">30-day history</button></div></div>
       <section class="fleet-card schedule-table"><div class="schedule-header"><span>Destination</span><span>Type</span><span>${this.scheduleTab === 'pending' ? 'Delivery' : 'Outcome'}</span><span>Status</span><span></span></div>${schedules.map((schedule) => this.renderScheduleRow(schedule)).join('')}</section>
       <p class="retention-note">${icon('history')}History is retained for 30 days. Times use your local zone; destination host zone is shown alongside.</p>
     </div>`;
@@ -382,7 +387,6 @@ export class DashboardPrototype {
       ${this.snapshot.pairingRequests.map((request) => `<section class="pairing-request"><span class="pairing-icon">${icon('user-plus')}</span><div><strong>Pairing request from ${escapeHtml(request.deviceName)}</strong><p>${escapeHtml(request.platform)} · live peer ${escapeHtml(request.peer)} · expires ${formatTime(request.expiresAt)}</p></div><button data-action="dashboard-review-pairing">Review exact proposal</button></section>`).join('')}
       <section class="fleet-card fleet-host-grid">${this.snapshot.hosts.map((host) => this.renderHostCard(host)).join('')}</section>
       <section class="pairing-layout">
-        <article class="fleet-card pair-device-card"><div class="card-heading"><div><h2>Pair a new device</h2><p>Single use · 128-bit invitation · 10 minutes</p></div>${icon('qr-code')}</div><div class="pair-methods"><button class="active">Nearby + six words</button><button>QR code</button><button>Copy link</button><button>.afpair file</button></div><div class="pair-preview"><div class="qr-placeholder">${icon('qr-code')}</div><div><strong>orbit cedar velvet summit amber tide</strong><p>The code can create a proposal only. This controller must approve the live peer and exact metadata.</p><button class="primary-button" data-action="dashboard-pair">${icon('user-plus')}Create invitation</button></div></div></article>
         <article class="fleet-card registry-card"><div class="card-heading"><div><h2>Fleet registry</h2><p>Provider: GitHub · verified cache available</p></div><span class="safe-badge">${icon('check')}Synced</span></div><dl><div><dt>Last sync</dt><dd>${relativeTime(this.snapshot.registrySyncedAt)}</dd></div><div><dt>Checkout</dt><dd>Clean</dd></div><div><dt>Schema</dt><dd>fleet/v1</dd></div><div><dt>Runtime bundle</dt><dd>1.4.0-dev</dd></div></dl><button class="quiet-button" data-action="dashboard-refresh">${icon('refresh-cw')}Check registry</button></article>
       </section>
     </div>`;
@@ -394,7 +398,6 @@ export class DashboardPrototype {
       <section class="fleet-card dashboard-settings-card"><div class="card-heading"><div><h2>Notifications</h2><p>All enabled Agent Fleet PCs may notify for the fleet</p></div>${icon('bell')}</div><div class="dashboard-form-grid"><label class="toggle-row"><span><strong>Hard limits and delivery failures</strong><small>Critical attention</small></span><input type="checkbox" checked></label><label class="toggle-row"><span><strong>Host offline and recovery</strong><small>After three missed heartbeats</small></span><input type="checkbox" checked></label><label class="toggle-row"><span><strong>Schedule delivery success</strong><small>Deduplicated across restarts</small></span><input type="checkbox" checked></label><label class="toggle-row"><span><strong>Version drift and pairing</strong><small>Actionable fleet changes</small></span><input type="checkbox" checked></label></div><button class="quiet-button" data-action="dashboard-pause">${icon('pause')}Pause on this PC for one hour</button></section>
       <section class="fleet-card dashboard-settings-card"><div class="card-heading"><div><h2>Tray appearance</h2><p>Worst unresolved fleet state controls severity</p></div>${icon('gauge')}</div><div class="tray-variants"><span><i class="status-healthy"></i>Healthy</span><span><i class="status-attention"></i>Attention</span><span><i class="status-failure"></i>Failure</span><span><i class="status-offline"></i>Disconnected</span></div></section>
       <section class="fleet-card dashboard-settings-card"><div class="card-heading"><div><h2>Privacy and diagnostics</h2><p>Metadata only, local and bounded</p></div>${icon('shield-check')}</div><p class="privacy-copy">Prompts, responses, transcripts, terminal screens, and credentials are never collected. Diagnostics are generated only when requested and can be previewed before sharing.</p><div class="inline-dashboard-actions"><button class="quiet-button">${icon('folder-open')}Preview diagnostics</button><button class="quiet-button">${icon('wrench')}Run doctor</button></div></section>
-      <section class="fleet-card dashboard-settings-card prototype-settings"><div class="card-heading"><div><h2>Prototype preview</h2><p>Review non-live dashboard states</p></div>${icon('sliders-horizontal')}</div><label>Data state<select data-dashboard-scenario aria-label="Prototype scenario">${(['live', 'offline', 'empty', 'error'] as const).map((scenario) => `<option value="${scenario}" ${this.scenario === scenario ? 'selected' : ''}>${capitalize(scenario)}</option>`).join('')}</select></label></section>
     </div>`;
   }
 
@@ -410,7 +413,7 @@ export class DashboardPrototype {
       <span class="session-context"><strong>${escapeHtml(session.project)}</strong><small>${escapeHtml(host?.name ?? session.hostId)} · ${escapeHtml(session.backend)}${session.profileAlias ? ` · ${escapeHtml(session.profileAlias)}` : ''}</small></span>
       <span class="activity-label activity-${session.activity}"><i></i>${capitalize(session.activity)}</span>
       <span class="session-time">${relativeTime(session.updatedAt)}${session.attached ? '<small>Attached</small>' : ''}</span>
-      <span class="session-actions"><button data-action="dashboard-open-session" title="Open">${icon('panel-top-open')}<span>Open</span></button>${compact ? '' : `<button data-action="dashboard-copy" title="Copy attach command">${icon('copy')}</button><button class="danger-quiet" data-action="dashboard-kill-session" title="Kill session">${icon('trash-2')}</button>`}</span>
+      <span class="session-actions"><button data-action="dashboard-open-session" title="Open in Windows Terminal">${icon('panel-top-open')}<span>Open</span></button></span>
     </div>`;
   }
 
@@ -424,7 +427,7 @@ export class DashboardPrototype {
 
   private renderScheduleRow(schedule: FleetSchedule): string {
     const session = this.snapshot.sessions.find((item) => item.id === schedule.sessionId);
-    return `<div class="schedule-row" data-schedule-id="${escapeAttr(schedule.id)}"><span><strong>${escapeHtml(session?.name ?? 'Ended session')}</strong><small>${escapeHtml(schedule.hostId)} · ${escapeHtml(session?.project ?? 'unknown')}</small></span><span><q>${escapeHtml(schedule.summary)}</q><small>Created ${relativeTime(schedule.createdAt)}</small></span><span><strong>${formatDateTime(schedule.completedAt ?? schedule.deliverAt)}</strong><small>${escapeHtml(schedule.hostTimeZone)}</small></span><span><b class="schedule-status schedule-${schedule.status}">${scheduleStatusIcon(schedule.status)}${capitalize(schedule.status)}</b>${schedule.detail ? `<small>${escapeHtml(schedule.detail)}</small>` : ''}</span><span class="schedule-actions">${schedule.status === 'pending' ? `<button data-action="dashboard-edit-schedule">Edit</button><button class="danger-quiet" data-action="dashboard-cancel-schedule">Cancel</button>` : '<button>Details</button>'}</span></div>`;
+    return `<div class="schedule-row" data-schedule-id="${escapeAttr(schedule.id)}"><span><strong>${escapeHtml(session?.name ?? 'Ended session')}</strong><small>${escapeHtml(schedule.hostId)} · ${escapeHtml(session?.project ?? 'unknown')}</small></span><span><q>${escapeHtml(schedule.summary)}</q><small>Created ${relativeTime(schedule.createdAt)}</small></span><span><strong>${formatDateTime(schedule.completedAt ?? schedule.deliverAt)}</strong><small>${escapeHtml(schedule.hostTimeZone)}</small></span><span><b class="schedule-status schedule-${schedule.status}">${scheduleStatusIcon(schedule.status)}${capitalize(schedule.status)}</b>${schedule.detail ? `<small>${escapeHtml(schedule.detail)}</small>` : ''}</span><span></span></div>`;
   }
 
   private renderEmptyState(): string {

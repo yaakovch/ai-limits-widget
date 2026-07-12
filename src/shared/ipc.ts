@@ -5,6 +5,7 @@ export const IPC_CHANNELS = {
   getFleetState: 'fleet:getState',
   refreshFleet: 'fleet:refresh',
   fleetStateUpdated: 'fleet:stateUpdated',
+  openFleetSession: 'fleet:openSession',
   getSettings: 'limits:getSettings',
   saveSettings: 'limits:saveSettings',
   testCodexProfile: 'limits:testCodexProfile',

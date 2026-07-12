@@ -246,6 +246,7 @@ function toSession(session: BridgeSessionSnapshot): FleetSession {
   return {
     id: session.id,
     hostId: session.hostId,
+    internalName: session.internalName,
     name: session.name,
     title: '',
     project: session.project,
