@@ -259,8 +259,16 @@ export class DashboardPrototype {
       return true;
     }
     if (action === 'dashboard-edit-schedule') return this.showToast('Pending schedule is ready to edit');
-    if (action === 'dashboard-pair') return this.showToast('Created a ten-minute pairing invitation preview');
-    if (action === 'dashboard-review-pairing') return this.showToast('Pairing proposal review opened');
+    if (action === 'dashboard-pair') {
+      void window.limitsWidget.createFleetPairingInvitation().then((result) => this.showToast(result.message));
+      return true;
+    }
+    if (action === 'dashboard-review-pairing') {
+      const requestId = control.closest<HTMLElement>('[data-pairing-request-id]')?.dataset.pairingRequestId;
+      if (!requestId) return this.showToast('Pairing request is no longer available');
+      void window.limitsWidget.reviewFleetPairing(requestId).then((result) => this.showToast(result.message));
+      return true;
+    }
     if (action === 'dashboard-pause') return this.showToast('Fleet notifications paused on this PC for one hour');
     if (action === 'dashboard-refresh') {
       void window.limitsWidget.refreshFleet();
@@ -459,7 +467,7 @@ export class DashboardPrototype {
 
   private renderFleet(): string {
     return `<div class="dashboard-stack">
-      ${this.snapshot.pairingRequests.map((request) => `<section class="pairing-request"><span class="pairing-icon">${icon('user-plus')}</span><div><strong>Pairing request from ${escapeHtml(request.deviceName)}</strong><p>${escapeHtml(request.platform)} · live peer ${escapeHtml(request.peer)} · expires ${formatTime(request.expiresAt)}</p></div><button data-action="dashboard-review-pairing">Review exact proposal</button></section>`).join('')}
+      ${this.snapshot.pairingRequests.filter((request) => request.status === 'awaiting-review').map((request) => `<section class="pairing-request" data-pairing-request-id="${escapeAttr(request.id)}"><span class="pairing-icon">${icon('user-plus')}</span><div><strong>Pairing request from ${escapeHtml(request.deviceName)}</strong><p>${escapeHtml(request.platform)} · live peer ${escapeHtml(request.peer)} · expires ${formatTime(request.expiresAt)}</p></div><button data-action="dashboard-review-pairing">Review exact proposal</button></section>`).join('')}
       <section class="fleet-card fleet-host-grid">${this.snapshot.hosts.map((host) => this.renderHostCard(host)).join('')}</section>
       <section class="pairing-layout">
         <article class="fleet-card registry-card"><div class="card-heading"><div><h2>Fleet registry</h2><p>Provider: GitHub · verified cache available</p></div><span class="safe-badge">${icon('check')}Synced</span></div><dl><div><dt>Last sync</dt><dd>${relativeTime(this.snapshot.registrySyncedAt)}</dd></div><div><dt>Checkout</dt><dd>Clean</dd></div><div><dt>Schema</dt><dd>fleet/v1</dd></div><div><dt>Runtime bundle</dt><dd>1.4.0-dev</dd></div></dl><button class="quiet-button" data-action="dashboard-refresh">${icon('refresh-cw')}Check registry</button></article>

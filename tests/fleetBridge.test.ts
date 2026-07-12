@@ -84,6 +84,24 @@ describe('fleet bridge supervisor', () => {
     supervisor.stop();
   }, 20_000);
 
+  it('returns an invitation secret only to the caller and never writes it to the fleet cache', async () => {
+    const directory = temporaryDirectory();
+    const cachePath = join(directory, 'fleet-cache-v1.json');
+    const supervisor = new FleetBridgeSupervisor({
+      cachePath,
+      launch: { command: process.execPath, args: [writeFakeBridge(directory, fixture)], distro: 'Test Linux' },
+      logger
+    });
+    const live = waitForStatus(supervisor, 'live');
+    supervisor.start();
+    await live;
+    const result = await supervisor.mutate('pairing.invite', { idempotencyKey: 'pair-invite-1' });
+    expect(result.invitation?.shortCode.split('-')).toHaveLength(6);
+    expect(result.invitation?.link).toContain('secretToken1234567890A');
+    expect(readFileSync(cachePath, 'utf8')).not.toContain('secretToken1234567890A');
+    supervisor.stop();
+  }, 20_000);
+
   it('resets the stream when a mutation times out so its late response cannot poison correlation', async () => {
     const directory = temporaryDirectory();
     const script = writeFakeBridge(directory, fixture, 100);
@@ -194,7 +212,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     operationId: request.params.idempotencyKey,
     status: request.method === 'session.create' ? 'created' : request.method === 'session.kill' ? 'killed' : 'cancelled',
     snapshot,
-    ...(request.method === 'session.create' ? { sessionId: 'test-host:session-1' } : {})
+    ...(request.method === 'session.create' ? { sessionId: 'test-host:session-1' } : {}),
+    ...(request.method === 'pairing.invite' ? { invitation: {
+      invitationId: 'invite-1', shortCode: 'baba-bebe-bibi-bobo-dada-dede',
+      bootstrapPeer: 'controller.tailnet.ts.net', expiresAt: '2026-07-12T05:10:00Z',
+      link: 'wtmux://pair?token=secretToken1234567890A',
+      file: { pairingVersion: 1, bootstrapPeer: 'controller.tailnet.ts.net',
+        token: 'secretToken1234567890A', expiresAt: '2026-07-12T05:10:00Z' }
+    }} : {})
   };
   setTimeout(() => emit({ protocolVersion: 1, type: 'response', requestId: request.requestId,
     timestamp: new Date().toISOString(), ok: true, result }), responseDelayMs);

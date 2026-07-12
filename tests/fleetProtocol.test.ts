@@ -35,4 +35,15 @@ describe('fleet protocol v1', () => {
     crossHost.sessions[0].hostId = 'other-host';
     expect(() => parseBridgeFleetSnapshot(crossHost)).toThrow(/unknown host/i);
   });
+
+  it('accepts only cache-safe pairing request summaries', () => {
+    const payload = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    payload.pairingRequests = [{
+      id: 'pair-1', deviceName: 'phone', platform: 'termux', peer: 'phone.tailnet.ts.net',
+      requestedAt: '2026-07-12T04:00:00Z', expiresAt: '2026-07-12T04:10:00Z', status: 'awaiting-review'
+    }];
+    expect(toFleetSnapshot(parseBridgeFleetSnapshot(payload), 'Ubuntu').pairingRequests).toHaveLength(1);
+    payload.pairingRequests[0].token = 'secret';
+    expect(() => parseBridgeFleetSnapshot(payload)).toThrow(/fields are invalid|private field/i);
+  });
 });
