@@ -266,13 +266,18 @@ export class FleetBridgeSupervisor extends EventEmitter {
     const baseKeys = ['operationId', 'snapshot', 'status'].sort();
     const scheduleKeys = [...baseKeys, 'scheduleId'].sort();
     const sessionKeys = [...baseKeys, 'sessionId'].sort();
-    if (!sameKeys(keys, baseKeys) && !sameKeys(keys, scheduleKeys) && !sameKeys(keys, sessionKeys)) {
+    const invitationKeys = [...baseKeys, 'invitation'].sort();
+    const pairingKeys = [...baseKeys, 'pairingRequest'].sort();
+    if (!sameKeys(keys, baseKeys) && !sameKeys(keys, scheduleKeys) && !sameKeys(keys, sessionKeys)
+      && !sameKeys(keys, invitationKeys) && !sameKeys(keys, pairingKeys)) {
       throw new Error('Mutation result fields are invalid');
     }
     if (!safeToken(result.operationId, 160) || !safeToken(result.status, 32)) throw new Error('Mutation result identity is invalid');
     if ('scheduleId' in result && !safeToken(result.scheduleId, 160)) throw new Error('Mutation scheduleId is invalid');
     if ('sessionId' in result && !safeToken(result.sessionId, 320)) throw new Error('Mutation sessionId is invalid');
     const snapshot = parseBridgeFleetSnapshot(result.snapshot);
+    const invitation = 'invitation' in result ? parsePairingInvitation(result.invitation) : undefined;
+    const pairingRequest = 'pairingRequest' in result ? parsePairingProposalReview(result.pairingRequest) : undefined;
     this.snapshot = snapshot;
     this.cacheSavedAt = new Date().toISOString();
     this.status = 'live';
@@ -284,7 +289,9 @@ export class FleetBridgeSupervisor extends EventEmitter {
       status: result.status,
       snapshot: toFleetSnapshot(snapshot, this.options.launch.distro),
       ...(typeof result.scheduleId === 'string' ? { scheduleId: result.scheduleId } : {}),
-      ...(typeof result.sessionId === 'string' ? { sessionId: result.sessionId } : {})
+      ...(typeof result.sessionId === 'string' ? { sessionId: result.sessionId } : {}),
+      ...(invitation ? { invitation } : {}),
+      ...(pairingRequest ? { pairingRequest } : {})
     };
     pending.resolve(output);
     this.emitChanged();
@@ -393,6 +400,66 @@ export class FleetBridgeSupervisor extends EventEmitter {
   }
 }
 
+function parsePairingInvitation(input: unknown): FleetMutationResult['invitation'] {
+  const value = object(input, 'pairing invitation');
+  exactKeys(value, ['invitationId', 'shortCode', 'bootstrapPeer', 'expiresAt', 'link', 'file'], 'pairing invitation');
+  const file = object(value.file, 'pairing invitation file');
+  exactKeys(file, ['pairingVersion', 'bootstrapPeer', 'token', 'expiresAt'], 'pairing invitation file');
+  if (file.pairingVersion !== 1 || !safeToken(value.invitationId, 160)) throw new Error('Pairing invitation identity is invalid');
+  if (typeof value.shortCode !== 'string' || !/^[a-z]+(?:-[a-z]+){5}$/u.test(value.shortCode)) throw new Error('Pairing short code is invalid');
+  if (!safeText(value.bootstrapPeer, 253) || !safeText(value.expiresAt, 40) || !safeText(value.link, 2048)) throw new Error('Pairing invitation is invalid');
+  if (file.bootstrapPeer !== value.bootstrapPeer || file.expiresAt !== value.expiresAt
+    || typeof file.token !== 'string' || !/^[A-Za-z0-9_-]{22}$/u.test(file.token)) throw new Error('Pairing invitation envelope is invalid');
+  return {
+    invitationId: value.invitationId as string,
+    shortCode: value.shortCode,
+    bootstrapPeer: value.bootstrapPeer as string,
+    expiresAt: value.expiresAt as string,
+    link: value.link as string
+  };
+}
+
+function parsePairingProposalReview(input: unknown): FleetMutationResult['pairingRequest'] {
+  const value = object(input, 'pairing proposal review');
+  exactKeys(value, [
+    'id', 'invitationId', 'deviceId', 'deviceName', 'platform', 'peer', 'peerIp', 'requestedAt',
+    'expiresAt', 'reviewedAt', 'status', 'publicationRef', 'proposal'
+  ], 'pairing proposal review');
+  if (!safeToken(value.id, 160) || !safeText(value.deviceName, 128) || !safeText(value.platform, 32)
+    || !safeText(value.peer, 253) || !safeText(value.peerIp, 45) || !safeText(value.requestedAt, 40)
+    || !safeText(value.expiresAt, 40) || !Number.isFinite(Date.parse(value.requestedAt as string))
+    || !Number.isFinite(Date.parse(value.expiresAt as string)) || value.status !== 'awaiting-review') {
+    throw new Error('Pairing proposal review is invalid');
+  }
+  const proposal = object(value.proposal, 'pairing proposal');
+  exactKeys(proposal, [
+    'schemaVersion', 'id', 'name', 'roles', 'platform', 'linuxUsername', 'tailscaleNode',
+    'projectsRoot', 'transport', 'wslDistro', 'fallback', 'hostCommand'
+  ], 'pairing proposal');
+  const fallback = object(proposal.fallback, 'pairing proposal fallback');
+  exactKeys(fallback, ['sshHost', 'ip'], 'pairing proposal fallback');
+  if (proposal.schemaVersion !== 1 || !Array.isArray(proposal.roles) || proposal.roles.length < 1
+    || proposal.roles.length > 2 || proposal.roles.some((role) => role !== 'host' && role !== 'client')) {
+    throw new Error('Pairing proposal schema is invalid');
+  }
+  for (const field of ['id', 'name', 'platform', 'linuxUsername', 'tailscaleNode', 'projectsRoot', 'transport', 'wslDistro', 'hostCommand']) {
+    if (typeof proposal[field] !== 'string' || !safeTextAllowEmpty(proposal[field], 4096)) throw new Error('Pairing proposal field is invalid');
+  }
+  if (!safeTextAllowEmpty(fallback.sshHost, 253) || !safeTextAllowEmpty(fallback.ip, 45)) throw new Error('Pairing proposal fallback is invalid');
+  if (JSON.stringify(proposal).length > 65_536) throw new Error('Pairing proposal is too large');
+  return {
+    id: value.id as string,
+    deviceName: value.deviceName as string,
+    platform: value.platform as string,
+    peer: value.peer as string,
+    peerIp: value.peerIp as string,
+    requestedAt: value.requestedAt as string,
+    expiresAt: value.expiresAt as string,
+    status: 'awaiting-review',
+    proposal
+  };
+}
+
 export function fleetBridgeLaunchFromSettings(settings: WidgetSettings): FleetBridgeLaunch {
   const profile = settings.codexProfiles.find((item) => item.enabled && item.distro && item.user && item.home)
     ?? settings.codexProfiles.find((item) => item.distro && item.user && item.home);
@@ -426,6 +493,10 @@ function safeToken(value: unknown, maximum: number): value is string {
 
 function safeText(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maximum && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function safeTextAllowEmpty(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' && value.length <= maximum && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 
 function safeKill(child: ChildProcessWithoutNullStreams | null): void {

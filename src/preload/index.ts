@@ -33,6 +33,10 @@ const api = {
     tool: 'shell' | 'codex' | 'claude' | 'copilot'
   ): Promise<{ ok: boolean; message: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.createFleetSession, hostId, project, backend, tool),
+  createFleetPairingInvitation: (): Promise<{ ok: boolean; message: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.createFleetPairingInvitation),
+  reviewFleetPairing: (requestId: string): Promise<{ ok: boolean; message: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.reviewFleetPairing, requestId),
   getSettings: (): Promise<SettingsLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.getSettings),
   saveSettings: (settings: WidgetSettings): Promise<SettingsLoadResult> => ipcRenderer.invoke(IPC_CHANNELS.saveSettings, settings),
   testCodexProfile: (profile: CodexProfileSettings): Promise<{ ok: boolean; message: string }> =>

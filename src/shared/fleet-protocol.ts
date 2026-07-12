@@ -75,6 +75,17 @@ export interface BridgeFleetSnapshot {
   sessions: BridgeSessionSnapshot[];
   schedules: BridgeScheduleSnapshot[];
   attention: BridgeAttentionSnapshot[];
+  pairingRequests: BridgePairingRequest[];
+}
+
+export interface BridgePairingRequest {
+  id: string;
+  deviceName: string;
+  platform: string;
+  peer: string;
+  requestedAt: string;
+  expiresAt: string;
+  status: 'awaiting-review' | 'approved' | 'rejected';
 }
 
 export type FleetBridgeStatus = 'starting' | 'live' | 'cached' | 'offline' | 'error';
@@ -86,7 +97,21 @@ export interface FleetBridgeView {
   errorCode: string;
 }
 
-export type FleetMutationMethod = 'session.create' | 'session.kill' | 'schedule.cancel' | 'schedule.create';
+export type FleetMutationMethod = 'session.create' | 'session.kill' | 'schedule.cancel' | 'schedule.create'
+  | 'pairing.invite' | 'pairing.review' | 'pairing.approve' | 'pairing.reject' | 'pairing.revoke';
+
+export interface PairingInvitation {
+  invitationId: string;
+  shortCode: string;
+  bootstrapPeer: string;
+  expiresAt: string;
+  link: string;
+}
+
+export interface PairingProposalReview extends BridgePairingRequest {
+  peerIp: string;
+  proposal: Record<string, unknown>;
+}
 
 export interface FleetMutationResult {
   operationId: string;
@@ -94,12 +119,18 @@ export interface FleetMutationResult {
   snapshot: FleetSnapshot;
   scheduleId?: string;
   sessionId?: string;
+  invitation?: PairingInvitation;
+  pairingRequest?: PairingProposalReview;
 }
 
 const FORBIDDEN_KEYS = new Set(['message', 'prompt', 'output', 'transcript', 'panetitle', 'command']);
 
 export function parseBridgeFleetSnapshot(input: unknown): BridgeFleetSnapshot {
-  const root = exactObject(input, ['revision', 'generatedAt', 'hosts', 'sessions', 'schedules', 'attention'], 'snapshot');
+  const candidate = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  const snapshotFields = 'pairingRequests' in candidate
+    ? ['revision', 'generatedAt', 'hosts', 'sessions', 'schedules', 'attention', 'pairingRequests']
+    : ['revision', 'generatedAt', 'hosts', 'sessions', 'schedules', 'attention'];
+  const root = exactObject(input, snapshotFields, 'snapshot');
   rejectPrivateFields(root);
   const revision = text(root.revision, 'revision', 64, false);
   const generatedAt = instant(root.generatedAt, 'generatedAt', false) as string;
@@ -109,7 +140,10 @@ export function parseBridgeFleetSnapshot(input: unknown): BridgeFleetSnapshot {
   const sessions = array(root.sessions, 'sessions', 500).map((value) => parseSession(value, hostIds));
   const schedules = array(root.schedules, 'schedules', 500).map((value) => parseSchedule(value, hostIds));
   const attention = array(root.attention, 'attention', 500).map((value) => parseAttention(value, hostIds));
-  return { revision, generatedAt, hosts, sessions, schedules, attention };
+  const pairingRequests = 'pairingRequests' in root
+    ? array(root.pairingRequests, 'pairingRequests', 256).map(parsePairingRequest)
+    : [];
+  return { revision, generatedAt, hosts, sessions, schedules, attention, pairingRequests };
 }
 
 export function toFleetSnapshot(raw: BridgeFleetSnapshot, distro: string): FleetSnapshot {
@@ -126,7 +160,7 @@ export function toFleetSnapshot(raw: BridgeFleetSnapshot, distro: string): Fleet
     attention: raw.attention.filter((item) => !['dismissed', 'scheduled', 'resolved'].includes(item.state)).map(toAttention),
     favorites: [],
     events: [],
-    pairingRequests: [],
+    pairingRequests: raw.pairingRequests,
     limits: []
   };
 }
@@ -232,6 +266,19 @@ function parseAttention(input: unknown, hostIds: ReadonlySet<string>): BridgeAtt
     state: text(value.state, 'attention.state', 32, false),
     detectedAt: instant(value.detectedAt, 'attention.detectedAt'),
     updatedAt: instant(value.updatedAt, 'attention.updatedAt')
+  };
+}
+
+function parsePairingRequest(input: unknown): BridgePairingRequest {
+  const value = exactObject(input, ['id', 'deviceName', 'platform', 'peer', 'requestedAt', 'expiresAt', 'status'], 'pairing request');
+  return {
+    id: text(value.id, 'pairing.id', 160, false),
+    deviceName: text(value.deviceName, 'pairing.deviceName', 128, false),
+    platform: text(value.platform, 'pairing.platform', 32, false),
+    peer: text(value.peer, 'pairing.peer', 253, false),
+    requestedAt: instant(value.requestedAt, 'pairing.requestedAt', false) as string,
+    expiresAt: instant(value.expiresAt, 'pairing.expiresAt', false) as string,
+    status: oneOf(value.status, 'pairing.status', ['awaiting-review', 'approved', 'rejected'])
   };
 }
 

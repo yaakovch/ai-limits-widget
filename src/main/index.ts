@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -10,6 +11,7 @@ import {
   shell,
   Tray,
   type IpcMainInvokeEvent,
+  type MessageBoxOptions,
   type Rectangle
 } from 'electron';
 import { randomUUID } from 'node:crypto';
@@ -527,6 +529,48 @@ handle(IPC_CHANNELS.createFleetSession, async (_event, hostId, project, backend,
       return { ok: opened.ok, message: opened.ok ? `Created and opened ${project}` : `Created ${project}; ${opened.message}` };
     }
     return { ok: true, message: `Created ${project}` };
+  } catch (error) {
+    return fleetMutationFailure(error);
+  }
+});
+handle(IPC_CHANNELS.createFleetPairingInvitation, async () => {
+  try {
+    const result = await fleetBridge.mutate('pairing.invite', { idempotencyKey: randomUUID() });
+    if (!result.invitation) return { ok: false, message: 'Controller returned no invitation' };
+    clipboard.writeText(result.invitation.link);
+    return {
+      ok: true,
+      message: `Pairing link copied · code ${result.invitation.shortCode} · expires in 10 minutes`
+    };
+  } catch (error) {
+    return fleetMutationFailure(error);
+  }
+});
+handle(IPC_CHANNELS.reviewFleetPairing, async (_event, requestId) => {
+  if (typeof requestId !== 'string') return { ok: false, message: 'Pairing request is invalid' };
+  const current = getFleetView().snapshot.pairingRequests.find((item) => item.id === requestId && item.status === 'awaiting-review');
+  if (!current) return { ok: false, message: 'Pairing request is no longer awaiting review' };
+  try {
+    const reviewed = await fleetBridge.mutate('pairing.review', { pairingRequestId: requestId, idempotencyKey: randomUUID() });
+    if (!reviewed.pairingRequest) return { ok: false, message: 'Controller returned no pairing proposal' };
+    const reviewOptions = {
+      type: 'warning',
+      title: 'Review exact pairing proposal',
+      message: `${reviewed.pairingRequest.deviceName} requests fleet access`,
+      detail: `Verified live peer: ${reviewed.pairingRequest.peer} (${reviewed.pairingRequest.peerIp})\n\n${JSON.stringify(reviewed.pairingRequest.proposal, null, 2)}`,
+      buttons: ['Approve', 'Reject', 'Cancel'],
+      defaultId: 2,
+      cancelId: 2,
+      noLink: true
+    } satisfies MessageBoxOptions;
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    const choice = focusedWindow
+      ? await dialog.showMessageBox(focusedWindow, reviewOptions)
+      : await dialog.showMessageBox(reviewOptions);
+    if (choice.response === 2) return { ok: false, message: 'Pairing review cancelled' };
+    const decision = choice.response === 0 ? 'pairing.approve' : 'pairing.reject';
+    await fleetBridge.mutate(decision, { pairingRequestId: requestId, idempotencyKey: randomUUID() });
+    return { ok: true, message: choice.response === 0 ? 'Pairing proposal approved and staged' : 'Pairing proposal rejected' };
   } catch (error) {
     return fleetMutationFailure(error);
   }
