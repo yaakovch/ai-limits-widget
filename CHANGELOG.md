@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.10.0-beta.1 - In development
+## 0.10.0-beta.2 - In development
+
+- Accepted the current bounded host quota metadata in fleet bridge snapshots.
+
+## 0.10.0-beta.1 - 2026-07-12
 
 - Renamed the project to Agent Fleet while retaining the legacy application ID for upgrade continuity.
 - Added the approved product specification and private-beta implementation plan.
