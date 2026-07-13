@@ -19,6 +19,7 @@ try {
     Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*$root*" } | ForEach-Object {
       Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
     }
+    & taskkill.exe /PID $process.Id /T /F *> $null
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
   }
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
