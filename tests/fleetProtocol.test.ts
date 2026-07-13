@@ -60,4 +60,18 @@ describe('fleet protocol v1', () => {
     payload.presets[0].prompt = 'secret';
     expect(() => parseBridgeFleetSnapshot(payload)).toThrow(/fields are invalid|private field/i);
   });
+
+  it('accepts current bounded host quota metadata', () => {
+    const payload = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    payload.limits = [{
+      id: 'test-host:codex:default', hostId: 'test-host', provider: 'codex', profileAlias: 'Codex', status: 'ready',
+      primary: { usedPercent: 25, remainingPercent: 75, resetsAt: '2026-07-12T05:00:00Z', windowMinutes: 300 },
+      secondary: { usedPercent: 40, remainingPercent: 60, resetsAt: '2026-07-19T05:00:00Z', windowMinutes: 10080 },
+      updatedAt: '2026-07-12T04:00:00Z'
+    }];
+    const snapshot = toFleetSnapshot(parseBridgeFleetSnapshot(payload), 'Ubuntu');
+    expect(snapshot.limits).toEqual([expect.objectContaining({ fiveHourRemaining: 75, weeklyRemaining: 60 })]);
+    payload.limits[0].primary.remainingPercent = 101;
+    expect(() => parseBridgeFleetSnapshot(payload)).toThrow(/remainingPercent/i);
+  });
 });

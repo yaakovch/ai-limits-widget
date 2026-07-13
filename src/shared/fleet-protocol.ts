@@ -3,6 +3,7 @@ import type {
   FleetBackend,
   FleetFavorite,
   FleetHost,
+  FleetUsageLimit,
   FleetSchedule,
   FleetSession,
   FleetSnapshot,
@@ -69,6 +70,24 @@ export interface BridgeAttentionSnapshot {
   updatedAt: string | null;
 }
 
+export interface BridgeLimitWindowSnapshot {
+  usedPercent: number;
+  remainingPercent: number;
+  resetsAt: string;
+  windowMinutes: number;
+}
+
+export interface BridgeLimitSnapshot {
+  id: string;
+  hostId: string;
+  provider: 'codex';
+  profileAlias: string;
+  status: 'ready' | 'limited';
+  primary: BridgeLimitWindowSnapshot | null;
+  secondary: BridgeLimitWindowSnapshot | null;
+  updatedAt: string;
+}
+
 export interface BridgeFleetSnapshot {
   revision: string;
   generatedAt: string;
@@ -76,6 +95,7 @@ export interface BridgeFleetSnapshot {
   sessions: BridgeSessionSnapshot[];
   schedules: BridgeScheduleSnapshot[];
   attention: BridgeAttentionSnapshot[];
+  limits: BridgeLimitSnapshot[];
   presets: FleetFavorite[];
   pairingRequests: BridgePairingRequest[];
 }
@@ -149,6 +169,7 @@ const FORBIDDEN_KEYS = new Set(['message', 'prompt', 'output', 'transcript', 'pa
 export function parseBridgeFleetSnapshot(input: unknown): BridgeFleetSnapshot {
   const candidate = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
   const snapshotFields = ['revision', 'generatedAt', 'hosts', 'sessions', 'schedules', 'attention'];
+  if ('limits' in candidate) snapshotFields.push('limits');
   if ('presets' in candidate) snapshotFields.push('presets');
   if ('pairingRequests' in candidate) snapshotFields.push('pairingRequests');
   const root = exactObject(input, snapshotFields, 'snapshot');
@@ -161,11 +182,12 @@ export function parseBridgeFleetSnapshot(input: unknown): BridgeFleetSnapshot {
   const sessions = array(root.sessions, 'sessions', 500).map((value) => parseSession(value, hostIds));
   const schedules = array(root.schedules, 'schedules', 500).map((value) => parseSchedule(value, hostIds));
   const attention = array(root.attention, 'attention', 500).map((value) => parseAttention(value, hostIds));
+  const limits = 'limits' in root ? array(root.limits, 'limits', 100).map((value) => parseLimit(value, hostIds)) : [];
   const presets = 'presets' in root ? array(root.presets, 'presets', 100).map((value) => parsePreset(value, hostIds)) : [];
   const pairingRequests = 'pairingRequests' in root
     ? array(root.pairingRequests, 'pairingRequests', 256).map(parsePairingRequest)
     : [];
-  return { revision, generatedAt, hosts, sessions, schedules, attention, presets, pairingRequests };
+  return { revision, generatedAt, hosts, sessions, schedules, attention, limits, presets, pairingRequests };
 }
 
 export function toFleetSnapshot(raw: BridgeFleetSnapshot, distro: string): FleetSnapshot {
@@ -183,7 +205,7 @@ export function toFleetSnapshot(raw: BridgeFleetSnapshot, distro: string): Fleet
     favorites: raw.presets,
     events: [],
     pairingRequests: raw.pairingRequests,
-    limits: []
+    limits: raw.limits.map(toUsageLimit)
   };
 }
 
@@ -304,6 +326,35 @@ function parsePairingRequest(input: unknown): BridgePairingRequest {
   };
 }
 
+function parseLimit(input: unknown, hostIds: ReadonlySet<string>): BridgeLimitSnapshot {
+  const value = exactObject(input, [
+    'id', 'hostId', 'provider', 'profileAlias', 'status', 'primary', 'secondary', 'updatedAt'
+  ], 'limit');
+  const hostId = text(value.hostId, 'limit.hostId', 160, false);
+  if (!hostIds.has(hostId)) fail('limit references an unknown host');
+  return {
+    id: text(value.id, 'limit.id', 320, false),
+    hostId,
+    provider: literal(value.provider, 'limit.provider', 'codex'),
+    profileAlias: text(value.profileAlias, 'limit.profileAlias', 64, false),
+    status: oneOf(value.status, 'limit.status', ['ready', 'limited']),
+    primary: parseLimitWindow(value.primary, 'limit.primary'),
+    secondary: parseLimitWindow(value.secondary, 'limit.secondary'),
+    updatedAt: instant(value.updatedAt, 'limit.updatedAt', false) as string
+  };
+}
+
+function parseLimitWindow(input: unknown, label: string): BridgeLimitWindowSnapshot | null {
+  if (input === null) return null;
+  const value = exactObject(input, ['usedPercent', 'remainingPercent', 'resetsAt', 'windowMinutes'], label);
+  return {
+    usedPercent: finiteNumber(value.usedPercent, `${label}.usedPercent`, 0, 100),
+    remainingPercent: finiteNumber(value.remainingPercent, `${label}.remainingPercent`, 0, 100),
+    resetsAt: instant(value.resetsAt, `${label}.resetsAt`, false) as string,
+    windowMinutes: integer(value.windowMinutes, `${label}.windowMinutes`, 1, 60 * 24 * 365)
+  };
+}
+
 function parsePreset(input: unknown, hostIds: Set<string>): FleetFavorite {
   const value = exactObject(input, ['id', 'name', 'hostId', 'project', 'backend', 'tool', 'profileAlias'], 'preset');
   const hostId = text(value.hostId, 'preset.hostId', 160, false);
@@ -392,6 +443,20 @@ function toAttention(item: BridgeAttentionSnapshot): FleetAttention {
   };
 }
 
+function toUsageLimit(item: BridgeLimitSnapshot): FleetUsageLimit {
+  const windows = [item.primary, item.secondary].filter((value): value is BridgeLimitWindowSnapshot => value !== null);
+  const fiveHour = windows.find((value) => value.windowMinutes === 300) ?? [...windows].sort((left, right) => left.windowMinutes - right.windowMinutes)[0];
+  const weekly = windows.find((value) => value.windowMinutes === 10_080) ?? [...windows].sort((left, right) => right.windowMinutes - left.windowMinutes)[0];
+  return {
+    id: item.id,
+    label: item.profileAlias,
+    fiveHourRemaining: fiveHour?.remainingPercent ?? null,
+    weeklyRemaining: weekly?.remainingPercent ?? null,
+    resetsAt: fiveHour?.resetsAt ?? weekly?.resetsAt ?? null,
+    status: 'ok'
+  };
+}
+
 function exactObject(input: unknown, fields: readonly string[], label: string): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail(`${label} must be an object`);
   const value = input as Record<string, unknown>;
@@ -450,6 +515,11 @@ function boolean(input: unknown, label: string): boolean {
 function integer(input: unknown, label: string, minimum: number, maximum: number): number {
   if (!Number.isInteger(input) || (input as number) < minimum || (input as number) > maximum) fail(`${label} is invalid`);
   return input as number;
+}
+
+function finiteNumber(input: unknown, label: string, minimum: number, maximum: number): number {
+  if (typeof input !== 'number' || !Number.isFinite(input) || input < minimum || input > maximum) fail(`${label} is invalid`);
+  return input;
 }
 
 function humanCode(value: string): string {
