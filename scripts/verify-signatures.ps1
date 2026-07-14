@@ -1,7 +1,8 @@
 param([string]$DistDir = (Join-Path $PSScriptRoot '..\dist'))
 
-$executables = Get-ChildItem -LiteralPath $DistDir -File -Filter 'Agent-Fleet-*.exe'
-if ($executables.Count -lt 2) { throw 'Expected signed Setup and Portable executables.' }
+$package = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json
+$executables = Get-ChildItem -LiteralPath $DistDir -File -Filter "Agent-Fleet-$($package.version)-*.exe"
+if ($executables.Count -ne 2) { throw "Expected current signed Setup and Portable executables for $($package.version)." }
 
 foreach ($file in $executables) {
   $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
