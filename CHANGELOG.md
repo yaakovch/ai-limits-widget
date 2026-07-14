@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0-beta.4 - 2026-07-14
+
+- Replaced Codex orchestration wrappers and transport-result JSON in Native
+  tool details with concise commands, paths, queries, and clean output.
+- Added terminal-like nested action rows for multi-action tools while keeping
+  complete technical input and result behind collapsed Raw tool data.
+- Matched Windows and Android tool titles, state, duration, bounded previews,
+  and per-action Copy behavior.
+
 ## 0.11.0-beta.1 - 2026-07-13
 
 - Added persistent in-app session tabs backed by Windows ConPTY and xterm.js,

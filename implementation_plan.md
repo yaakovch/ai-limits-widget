@@ -183,3 +183,12 @@ Acceptance record (2026-07-14): beta.3 passed 72 Windows tests, the signed
 packaged ConPTY/WSL smoke, three restored live PTY attaches, and 60-sample CPU
 gates at 0.000% average in both hidden and visible states. The shared wtmux
 Python/Bats/smoke suites and Android debug unit suite also passed.
+
+## 13. Terminal-Like Native Tool Details
+
+- Consume ordered semantic action blocks from conversation v2 and render one
+  action directly or several actions as individually expandable rows.
+- Keep state and duration in the call header, readable output below actions,
+  per-block Copy controls, bounded previews, and complete raw data collapsed.
+- Release Windows beta.4 first, then the matching signed Android update with
+  the same renderer behavior and the current wtmux runtime baseline.

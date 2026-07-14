@@ -834,15 +834,28 @@ function renderTool(item: ConversationItem): string {
   const resultBlocks = presentation?.resultBlocks?.length ? presentation.resultBlocks : item.result ? [{ title: 'Result', kind: 'text', content: item.result }] : [];
   const duration = toolDuration(item);
   const raw = [item.input ? { title: 'Raw input', content: item.input } : null, item.result ? { title: 'Raw result', content: item.result } : null].filter((value): value is { title: string; content: string } => Boolean(value));
-  return `<details class="tool-call state-${escapeAttr(item.state)}" data-detail-id="tool-${escapeAttr(item.id)}"><summary><span class="tool-state"></span><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(subtitle || item.target || 'No target reported')}</small></span><span class="tool-summary-meta"><b>${escapeHtml(stateLabel(item.state))}</b>${duration ? `<small>${escapeHtml(duration)}</small>` : ''}</span></summary><div class="tool-detail">${[...inputBlocks, ...resultBlocks].map(renderToolBlock).join('') || '<p>No details reported.</p>'}${raw.length ? `<details class="tool-raw" data-detail-id="raw-${escapeAttr(item.id)}"><summary>Raw tool data</summary>${raw.map((block) => renderToolBlock({ ...block, kind: 'json' })).join('')}</details>` : ''}</div></details>`;
+  const semanticInput = inputBlocks.length > 1 ? renderToolActions(inputBlocks) : inputBlocks.map((block) => renderToolBlock(block)).join('');
+  const semanticOutput = resultBlocks.map((block) => renderToolBlock(block)).join('');
+  return `<details class="tool-call state-${escapeAttr(item.state)}" data-detail-id="tool-${escapeAttr(item.id)}"><summary><span class="tool-state"></span><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(subtitle || item.target || stateLabel(item.state))}</small></span><span class="tool-summary-meta"><b>${escapeHtml(stateLabel(item.state))}</b>${duration ? `<small>${escapeHtml(duration)}</small>` : ''}</span></summary><div class="tool-detail">${semanticInput}${semanticOutput || (!semanticInput ? '<p>No details reported.</p>' : '')}${raw.length ? `<details class="tool-raw" data-detail-id="raw-${escapeAttr(item.id)}"><summary>Raw tool data</summary>${raw.map((block) => renderToolBlock({ ...block, kind: 'json' })).join('')}</details>` : ''}</div></details>`;
 }
 
-function renderToolBlock(block: ToolPresentationBlock): string {
-  if (block.kind === 'markdown') return `<section data-copy-source><h4><span>${escapeHtml(block.title)}</span><button data-action="native-copy" data-workspace-action>Copy</button></h4><span hidden data-copy-value>${escapeHtml(block.content)}</span>${markdown(block.content)}</section>`;
+function renderToolActions(blocks: ToolPresentationBlock[]): string {
+  return `<div class="tool-actions">${blocks.map((block, index) => {
+    const preview = block.content.split(/\r?\n/u).find((line) => line.trim())?.trim() || 'No details';
+    const shortened = preview.length > 120 ? `${preview.slice(0, 117)}…` : preview;
+    return `<details class="tool-action"><summary><span><strong>${index + 1}. ${escapeHtml(block.title)}</strong><small>${escapeHtml(shortened)}</small></span><b>Details</b></summary><div>${renderToolBlock(block, true)}</div></details>`;
+  }).join('')}</div>`;
+}
+
+function renderToolBlock(block: ToolPresentationBlock, compact = false): string {
+  const controls = compact
+    ? `<div class="tool-action-controls"><button data-action="native-copy" data-workspace-action>Copy</button></div>`
+    : `<h4><span>${escapeHtml(block.title)}</span><button data-action="native-copy" data-workspace-action>Copy</button></h4>`;
+  if (block.kind === 'markdown') return `<section data-copy-source>${controls}<span hidden data-copy-value>${escapeHtml(block.content)}</span>${markdown(block.content)}</section>`;
   const content = block.kind === 'json' ? prettyJson(block.content) : block.content;
   const rendered = block.kind === 'diff' ? renderDiff(content)
     : `<pre class="tool-block-${escapeAttr(block.kind)}"><code>${hljs.highlightAuto(content).value}</code></pre>`;
-  return `<section data-copy-source><h4><span>${escapeHtml(block.title)}</span><button data-action="native-copy" data-workspace-action>Copy</button></h4><span hidden data-copy-value>${escapeHtml(content)}</span>${rendered}</section>`;
+  return `<section data-copy-source>${controls}<span hidden data-copy-value>${escapeHtml(content)}</span>${rendered}</section>`;
 }
 
 function markdown(value: string): string {
