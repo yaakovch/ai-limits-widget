@@ -242,3 +242,12 @@ Python/Bats/smoke suites and Android debug unit suite also passed.
   an error with an empty-folder state or changing repository protocol data.
 - Run the full suite, production package, and real text/binary download smoke;
   ship `0.11.0-beta.8` before Android `.30` and retain beta.7 for rollback.
+
+## 18. Repository Download Finalization Hotfix
+
+- Consume the corrected shared wtmux receiver on Windows hosts; keep the
+  repository protocol and beta.8 client unchanged because browsing, Retry, and
+  transfer management are already client-complete.
+- Validate the full Windows suite and production build against the shared
+  no-hard-link regression, then activate the matched host runtime while
+  retaining the previous runtime for rollback.
