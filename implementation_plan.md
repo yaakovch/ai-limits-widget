@@ -489,3 +489,15 @@ a real loopback server.
 3. Run lint, all tests, production Windows packaging, and packaged ConPTY/WSL
    smoke. Release `0.11.0-beta.17` through the existing updater and retain
    beta.16 for rollback.
+
+Implementation record (2026-07-18): commit `87419e0` passed TypeScript lint,
+all 136 tests, production NSIS/portable packaging, and packaged ConPTY/WSL
+smoke. The byte-verified beta.17 prerelease is published; setup SHA-256 is
+`a3fb4e48103abcf42b361fc7899a05f329de57a6539d3435c910986bd75d63ab`
+and portable SHA-256 is
+`b9bedc49a386012ee8232e580b46e25487a00c7a0e3ceed4b5b554adcf3fa6e9`.
+The repository's SignPath workflow cannot sign because its organization and
+project secrets are not configured, and the controller has no code-signing
+certificate. As with beta.16, these private-beta files are unsigned; beta.16's
+configured signature check therefore requires a manual beta.17 install rather
+than an automatic update. Beta.16 remains available for rollback.
