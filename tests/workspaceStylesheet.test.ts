@@ -34,4 +34,14 @@ describe('workspace stylesheet contract', () => {
     expect(source).not.toContain('renderTerminalHistoryRows');
     expect(source).not.toContain('terminal-history-copy');
   });
+
+  it('keeps one compact focused-session model control above both workspace surfaces', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'renderer', 'src', 'style.css'), 'utf8')
+      .replace(/\s+/gu, ' ');
+    const source = readFileSync(join(process.cwd(), 'src', 'renderer', 'src', 'session-workspace.ts'), 'utf8');
+    expect(css).toContain('.workspace-model-control { min-width: 0; max-width: 210px; height: 31px;');
+    expect(css).toContain('.model-control-backdrop { position: absolute; z-index: 80; inset: 0;');
+    expect(source.match(/data-action="workspace-model-open"/gu)).toHaveLength(1);
+    expect(source).toContain("window.limitsWidget.getFleetSessionModel(session.id, false)");
+  });
 });

@@ -1575,6 +1575,37 @@ button svg { width: 15px; height: 15px; stroke-width: 2; flex: 0 0 auto; }
 .workspace-toolbar-retry { min-width: 47px; }
 .workspace-toolbar-retry.invisible { visibility: hidden; }
 .workspace-toolbar-more > summary { min-height: 31px; display: grid; place-items: center; padding: 5px 9px; }
+.workspace-model-control { min-width: 0; max-width: 210px; height: 31px; display: flex; align-items: center; border: 1px solid #3a526a; border-radius: 8px; padding: 0 10px; color: #c8d8e8; background: #172536; cursor: pointer; }
+.workspace-model-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; }
+.workspace-model-control.status-queued,.workspace-model-control.status-applying { border-color: #b07b32; color: #ffd88c; background: #302414; }
+.workspace-model-control.status-error,.workspace-model-control.status-expired { border-color: #704047; color: #ffb6bc; background: #2b181c; }
+.workspace-model-control:disabled { opacity: .55; cursor: default; }
+.model-control-backdrop { position: absolute; z-index: 80; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(3,7,12,.76); backdrop-filter: blur(3px); }
+.model-control-dialog { width: min(620px,100%); max-height: min(760px,calc(100vh - 48px)); overflow-y: auto; display: grid; gap: 15px; border: 1px solid #415a75; border-radius: 15px; padding: 18px; color: #e6edf5; background: #101821; box-shadow: 0 24px 80px rgba(0,0,0,.62); }
+.model-control-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.model-control-dialog > header > div { min-width: 0; }
+.model-control-dialog header small { color: #74d1b4; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.model-control-dialog h2 { margin: 3px 0 2px; font-size: 20px; }
+.model-control-dialog header p { margin: 0; color: #8fa0b3; font-size: 11px; }
+.model-control-dialog header > button { width: 32px; height: 32px; border: 1px solid #36495e; border-radius: 8px; color: #b8c5d2; background: #172331; cursor: pointer; font-size: 20px; }
+.model-control-field { display: grid; gap: 6px; }
+.model-control-field > span { font-size: 12px; font-weight: 700; }
+.model-control-field select,.model-control-field input { width: 100%; height: 38px; border: 1px solid #3a4e63; border-radius: 8px; padding: 0 10px; color: #edf4fb; background: #0b121a; }
+.model-control-field small { color: #8798aa; font-size: 10px; line-height: 15px; }
+.model-control-custom { display: flex; align-items: center; gap: 8px; color: #b9c7d6; font-size: 12px; }
+.model-control-pending { display: flex; align-items: center; gap: 12px; border: 1px solid #8c632b; border-radius: 10px; padding: 10px 11px; background: #292014; }
+.model-control-pending > span { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.model-control-pending small { overflow: hidden; color: #d5b985; text-overflow: ellipsis; white-space: nowrap; }
+.model-control-pending button { border: 1px solid #8c632b; border-radius: 7px; padding: 6px 8px; color: #ffdb99; background: transparent; cursor: pointer; }
+.model-control-note,.model-control-error { border: 1px solid #33475b; border-radius: 9px; padding: 10px 11px; color: #9eafc0; background: #0c141d; font-size: 11px; line-height: 17px; }
+.model-control-note.warning { border-color: #8b5d2d; color: #f3c985; background: #251b12; }
+.model-control-error { border-color: #6d3b41; color: #ffb8bd; background: #2a171b; }
+.model-control-dialog footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid #2a394a; padding-top: 14px; }
+.model-control-dialog footer > span { min-width: 0; flex: 1; color: #8192a5; font-size: 10px; }
+.model-control-dialog footer button { min-height: 34px; border: 1px solid #3b5067; border-radius: 8px; padding: 0 12px; color: #c7d4e1; background: #182535; cursor: pointer; }
+.model-control-dialog footer button.primary-button { border-color: #4b80bd; color: white; background: #315f94; }
+.model-control-dialog footer button:disabled { opacity: .5; cursor: default; }
+.model-control-loading { padding: 34px; color: #9cafc1; text-align: center; }
 .workspace-actions-menu button:disabled { opacity: .4; cursor: default; }
 .workspace-layout-toolbar button,
 .workspace-preset-menu > summary { min-height: 31px; border: 1px solid #334252; border-radius: 7px; padding: 6px 9px; color: #bcc8d4; background: #151e28; font-size: 11px; cursor: pointer; }

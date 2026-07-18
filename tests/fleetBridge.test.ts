@@ -123,6 +123,31 @@ describe('fleet bridge supervisor', () => {
     supervisor.stop();
   }, 20_000);
 
+  it('uses the dedicated session revision for model control and never caches it in the fleet snapshot', async () => {
+    const directory = temporaryDirectory();
+    const cachePath = join(directory, 'fleet-cache-v1.json');
+    const supervisor = new FleetBridgeSupervisor({
+      cachePath,
+      launch: { command: process.execPath, args: [writeFakeBridge(directory, fixture)], distro: 'Test Linux' },
+      logger
+    });
+    const live = waitForStatus(supervisor, 'live');
+    supervisor.start();
+    await live;
+    const state = await supervisor.mutate('session.model.get', {
+      hostId: 'test-host', sessionId: 'test-host:session-1', includeCatalog: true
+    });
+    expect(state).toMatchObject({ configRevision: '0123456789abcdef', tool: 'codex' });
+    const changed = await supervisor.mutate('session.model.set', {
+      hostId: 'test-host', sessionId: 'test-host:session-1', modelId: 'provider/model-2', effortId: 'high',
+      custom: false, expectedConfigRevision: state.configRevision, idempotencyKey: 'model-operation-1',
+      historyImpactAcknowledged: true
+    });
+    expect(changed).toMatchObject({ status: 'queued', modelControl: { sessionId: 'test-host:session-1' } });
+    expect(readFileSync(cachePath, 'utf8')).not.toContain('provider/model-2');
+    supervisor.stop();
+  }, 20_000);
+
   it('waits for a cached controller to become live before a repository read', async () => {
     const directory = temporaryDirectory();
     const cachePath = join(directory, 'fleet-cache-v1.json');
@@ -292,6 +317,12 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       error: { code: 'repository_unavailable', message: 'Repository path is unavailable for this session' } });
     return;
   }
+  if (request.method.startsWith('session.model.') && Object.hasOwn(request.params, 'expectedRevision')) {
+    emit({ protocolVersion: 1, type: 'response', requestId: request.requestId,
+      timestamp: new Date().toISOString(), ok: false,
+      error: { code: 'invalid_request', message: 'fleet revision must not be sent for model control' } });
+    return;
+  }
   const result = request.method === 'fleet.snapshot' ? snapshot : request.method === 'directory.list' ? {
     backend: 'linux', path: '/home/test', parentPath: '/home', truncated: false,
     entries: [{ name: 'private-work', path: '/home/test/private-work' }],
@@ -300,6 +331,21 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     rootName: 'project', relativePath: '', parentPath: null, nextCursor: null, truncated: false,
     entries: [{ name: 'private-report.pdf', relativePath: 'private-report.pdf', kind: 'file', size: 12,
       modifiedAt: '2026-07-14T12:00:00Z', hidden: false, isLink: false }]
+  } : request.method === 'session.model.get' ? {
+    sessionId: 'test-host:session-1', configRevision: '0123456789abcdef', tool: 'codex', status: 'ready',
+    selected: { modelId: 'auto', modelLabel: 'Auto', effortId: 'automatic', effortLabel: 'Automatic' },
+    effective: null, pending: null,
+    catalog: { customAllowed: true, models: [
+      { id: 'auto', label: 'Auto', description: 'Provider default', isDefault: true,
+        efforts: [{ id: 'automatic', label: 'Automatic' }], defaultEffort: 'automatic' },
+      { id: 'provider/model-2', label: 'Provider Model 2', description: 'Discovered', isDefault: false,
+        efforts: [{ id: 'high', label: 'High' }], defaultEffort: 'high' }
+    ] }, detail: ''
+  } : request.method === 'session.model.set' || request.method === 'session.model.cancel' ? {
+    operationId: request.params.idempotencyKey, status: request.method === 'session.model.set' ? 'queued' : 'cancelled',
+    modelControl: { sessionId: 'test-host:session-1', configRevision: 'fedcba9876543210', tool: 'codex', status: 'ready',
+      selected: { modelId: 'auto', modelLabel: 'Auto', effortId: 'automatic', effortLabel: 'Automatic' },
+      effective: null, pending: null, catalog: null, detail: '' }
   } : {
     operationId: request.params.idempotencyKey,
     status: request.method === 'session.create' ? 'created' : request.method === 'session.kill' ? 'killed' : 'cancelled',

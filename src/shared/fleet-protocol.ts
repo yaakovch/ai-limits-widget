@@ -125,6 +125,7 @@ export type FleetMutationMethod = 'session.create' | 'session.kill' | 'schedule.
   | 'attention.dismiss'
   | 'host.doctor' | 'host.update' | 'session.rename'
   | 'directory.list' | 'directory.create' | 'repository.list' | 'repository.search'
+  | 'session.model.get' | 'session.model.set' | 'session.model.cancel'
   | 'preset.upsert' | 'preset.delete'
   | 'pairing.invite' | 'pairing.review' | 'pairing.approve' | 'pairing.reject' | 'pairing.revoke';
 
@@ -183,6 +184,46 @@ export interface FleetRepositoryPage {
   entries: FleetRepositoryEntry[];
   nextCursor: string | null;
   truncated: boolean;
+}
+
+export interface FleetModelEffortOption { id: string; label: string }
+export interface FleetModelOption {
+  id: string;
+  label: string;
+  description: string;
+  isDefault: boolean;
+  efforts: FleetModelEffortOption[];
+  defaultEffort: string;
+}
+export interface FleetModelSelection {
+  modelId: string;
+  modelLabel: string;
+  effortId: string;
+  effortLabel: string;
+}
+export interface FleetPendingModelChange {
+  operationId: string;
+  modelId: string;
+  effortId: string;
+  custom: boolean;
+  requestedAt: string;
+  expiresAt: string;
+}
+export interface FleetModelControlState {
+  sessionId: string;
+  configRevision: string;
+  tool: 'codex' | 'claude' | 'copilot';
+  status: 'ready' | 'queued' | 'applying' | 'cancelled' | 'already-clear' | 'expired' | 'error' | 'unknown';
+  selected: FleetModelSelection;
+  effective: FleetModelSelection | null;
+  pending: FleetPendingModelChange | null;
+  catalog: { models: FleetModelOption[]; customAllowed: boolean } | null;
+  detail: string;
+}
+export interface FleetModelControlMutationResult {
+  operationId: string;
+  status: string;
+  modelControl: FleetModelControlState;
 }
 
 export interface FleetDoctorCheck {
@@ -308,6 +349,97 @@ export function parseFleetRepositoryPage(input: unknown): FleetRepositoryPage {
     nextCursor,
     truncated: boolean(value.truncated, 'repository.truncated')
   };
+}
+
+export function parseFleetModelControlState(input: unknown): FleetModelControlState {
+  const value = exactObject(input, [
+    'sessionId', 'configRevision', 'tool', 'status', 'selected', 'effective', 'pending', 'catalog', 'detail'
+  ], 'model control');
+  const parseSelection = (inputSelection: unknown, nullable: boolean): FleetModelSelection | null => {
+    if (inputSelection === null && nullable) return null;
+    const selection = exactObject(inputSelection, ['modelId', 'modelLabel', 'effortId', 'effortLabel'], 'model selection');
+    return {
+      modelId: modelIdentifier(selection.modelId, 'model selection model'),
+      modelLabel: text(selection.modelLabel, 'model selection label', 120, false),
+      effortId: effortIdentifier(selection.effortId, 'model selection effort'),
+      effortLabel: text(selection.effortLabel, 'model selection effort label', 120, false)
+    };
+  };
+  const pendingValue = value.pending === null ? null
+    : exactObject(value.pending, ['operationId', 'modelId', 'effortId', 'custom', 'requestedAt', 'expiresAt'], 'pending model control');
+  const pending = pendingValue === null ? null : {
+    operationId: token(pendingValue.operationId, 'pending model operation', 160),
+    modelId: modelIdentifier(pendingValue.modelId, 'pending model'),
+    effortId: effortIdentifier(pendingValue.effortId, 'pending effort'),
+    custom: boolean(pendingValue.custom, 'pending custom flag'),
+    requestedAt: instant(pendingValue.requestedAt, 'pending model requestedAt', false) as string,
+    expiresAt: instant(pendingValue.expiresAt, 'pending model expiresAt', false) as string
+  };
+  const catalogValue = value.catalog === null ? null : exactObject(value.catalog, ['models', 'customAllowed'], 'model catalog');
+  const catalog = catalogValue === null ? null : {
+    customAllowed: boolean(catalogValue.customAllowed, 'model catalog custom flag'),
+    models: array(catalogValue.models, 'model catalog models', 128).map((candidate) => {
+      const item = exactObject(candidate, ['id', 'label', 'description', 'isDefault', 'efforts', 'defaultEffort'], 'model catalog entry');
+      const efforts = array(item.efforts, 'model efforts', 16).map((candidateEffort) => {
+        const effort = exactObject(candidateEffort, ['id', 'label'], 'model effort');
+        return { id: effortIdentifier(effort.id, 'model effort id'), label: text(effort.label, 'model effort label', 80, false) };
+      });
+      if (!efforts.length) fail('model catalog entry has no efforts');
+      const defaultEffort = effortIdentifier(item.defaultEffort, 'model default effort');
+      if (!efforts.some((effort) => effort.id === defaultEffort)) fail('model default effort is unavailable');
+      return {
+        id: modelIdentifier(item.id, 'model id'),
+        label: text(item.label, 'model label', 120, false),
+        description: text(item.description, 'model description', 240),
+        isDefault: boolean(item.isDefault, 'model default flag'), efforts, defaultEffort
+      };
+    })
+  };
+  if (catalog && !catalog.models.length) fail('model catalog is empty');
+  return {
+    sessionId: token(value.sessionId, 'model control session', 320),
+    configRevision: revision(value.configRevision, 'model control revision'),
+    tool: oneOf(value.tool, 'model control tool', ['codex', 'claude', 'copilot']),
+    status: oneOf(value.status, 'model control status', [
+      'ready', 'queued', 'applying', 'cancelled', 'already-clear', 'expired', 'error', 'unknown'
+    ]),
+    selected: parseSelection(value.selected, false) as FleetModelSelection,
+    effective: parseSelection(value.effective, true), pending, catalog,
+    detail: text(value.detail, 'model control detail', 240)
+  };
+}
+
+export function parseFleetModelControlMutationResult(input: unknown): FleetModelControlMutationResult {
+  const value = exactObject(input, ['operationId', 'status', 'modelControl'], 'model control mutation');
+  return {
+    operationId: token(value.operationId, 'model control operation', 160),
+    status: token(value.status, 'model control mutation status', 32),
+    modelControl: parseFleetModelControlState(value.modelControl)
+  };
+}
+
+function modelIdentifier(input: unknown, label: string): string {
+  const value = text(input, label, 160, false);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}$/u.test(value)) fail(`${label} is invalid`);
+  return value;
+}
+
+function effortIdentifier(input: unknown, label: string): string {
+  const value = text(input, label, 64, false);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}$/u.test(value)) fail(`${label} is invalid`);
+  return value;
+}
+
+function token(input: unknown, label: string, maximum: number): string {
+  const value = text(input, label, maximum, false);
+  if (!/^[A-Za-z0-9._:-]+$/u.test(value)) fail(`${label} is invalid`);
+  return value;
+}
+
+function revision(input: unknown, label: string): string {
+  const value = text(input, label, 16, false);
+  if (!/^[a-f0-9]{16}$/u.test(value)) fail(`${label} is invalid`);
+  return value;
 }
 
 function repositoryPath(input: unknown, label: string, empty: boolean): string {

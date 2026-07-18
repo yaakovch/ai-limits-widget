@@ -8,6 +8,8 @@ import {
   FLEET_PROTOCOL_VERSION,
   emptyFleetSnapshot,
   parseFleetDirectoryListing,
+  parseFleetModelControlMutationResult,
+  parseFleetModelControlState,
   parseFleetRepositoryPage,
   parseBridgeFleetSnapshot,
   toFleetSnapshot,
@@ -15,6 +17,8 @@ import {
   type FleetBridgeStatus,
   type FleetBridgeView,
   type FleetDirectoryListing,
+  type FleetModelControlMutationResult,
+  type FleetModelControlState,
   type FleetRepositoryPage,
   type FleetMutationMethod,
   type FleetMutationResult,
@@ -53,7 +57,7 @@ interface CacheEnvelope {
 
 interface PendingMutation {
   requestId: string;
-  resolve: (result: FleetMutationResult | FleetDirectoryListing | FleetRepositoryPage) => void;
+  resolve: (result: FleetMutationResult | FleetDirectoryListing | FleetRepositoryPage | FleetModelControlState | FleetModelControlMutationResult) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
 }
@@ -152,16 +156,19 @@ export class FleetBridgeSupervisor extends EventEmitter {
 
   mutate(method: 'directory.list', params: Record<string, unknown>): Promise<FleetDirectoryListing>;
   mutate(method: 'repository.list' | 'repository.search', params: Record<string, unknown>): Promise<FleetRepositoryPage>;
-  mutate(method: Exclude<FleetMutationMethod, 'directory.list' | 'repository.list' | 'repository.search'>, params: Record<string, unknown>): Promise<FleetMutationResult>;
-  mutate(method: FleetMutationMethod, params: Record<string, unknown>): Promise<FleetMutationResult | FleetDirectoryListing | FleetRepositoryPage> {
-    const transientRead = method === 'directory.list' || method === 'repository.list' || method === 'repository.search';
+  mutate(method: 'session.model.get', params: Record<string, unknown>): Promise<FleetModelControlState>;
+  mutate(method: 'session.model.set' | 'session.model.cancel', params: Record<string, unknown>): Promise<FleetModelControlMutationResult>;
+  mutate(method: Exclude<FleetMutationMethod, 'directory.list' | 'repository.list' | 'repository.search' | 'session.model.get' | 'session.model.set' | 'session.model.cancel'>, params: Record<string, unknown>): Promise<FleetMutationResult>;
+  mutate(method: FleetMutationMethod, params: Record<string, unknown>): Promise<FleetMutationResult | FleetDirectoryListing | FleetRepositoryPage | FleetModelControlState | FleetModelControlMutationResult> {
+    const transientRead = method === 'directory.list' || method === 'repository.list' || method === 'repository.search'
+      || method === 'session.model.get';
     if (transientRead && this.status !== 'live' && !this.stopped && this.child && !this.child.killed) {
       return this.waitUntilLive(10_000).then(() => this.sendMutation(method, params));
     }
     return this.sendMutation(method, params);
   }
 
-  private sendMutation(method: FleetMutationMethod, params: Record<string, unknown>): Promise<FleetMutationResult | FleetDirectoryListing | FleetRepositoryPage> {
+  private sendMutation(method: FleetMutationMethod, params: Record<string, unknown>): Promise<FleetMutationResult | FleetDirectoryListing | FleetRepositoryPage | FleetModelControlState | FleetModelControlMutationResult> {
     if (this.status !== 'live' || !this.snapshot || !this.child || this.child.killed || !this.child.stdin.writable) {
       return Promise.reject(new FleetMutationError('host_offline', 'Fleet controller is not live'));
     }
@@ -186,7 +193,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
         requestId,
         method,
         timestamp: new Date().toISOString(),
-        params: { ...params, expectedRevision: this.snapshot!.revision }
+        params: method.startsWith('session.model.') ? params : { ...params, expectedRevision: this.snapshot!.revision }
       };
       this.child!.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
         if (error) this.rejectPendingMutation('bridge_disconnected', 'Fleet bridge write failed');
@@ -341,6 +348,20 @@ export class FleetBridgeSupervisor extends EventEmitter {
       const page = parseFleetRepositoryPage(result);
       this.finishPendingMutation();
       pending.resolve(page);
+      return;
+    }
+    const modelStateKeys = ['catalog', 'configRevision', 'detail', 'effective', 'pending', 'selected', 'sessionId', 'status', 'tool'].sort();
+    if (sameKeys(keys, modelStateKeys)) {
+      const state = parseFleetModelControlState(result);
+      this.finishPendingMutation();
+      pending.resolve(state);
+      return;
+    }
+    const modelMutationKeys = ['modelControl', 'operationId', 'status'].sort();
+    if (sameKeys(keys, modelMutationKeys)) {
+      const operation = parseFleetModelControlMutationResult(result);
+      this.finishPendingMutation();
+      pending.resolve(operation);
       return;
     }
     const baseKeys = ['operationId', 'snapshot', 'status'].sort();

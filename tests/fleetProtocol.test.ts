@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseBridgeFleetSnapshot, parseFleetDirectoryListing, parseFleetRepositoryPage, toFleetSnapshot } from '../src/shared/fleet-protocol';
+import {
+  parseBridgeFleetSnapshot, parseFleetDirectoryListing, parseFleetModelControlState, parseFleetRepositoryPage,
+  toFleetSnapshot
+} from '../src/shared/fleet-protocol';
 
 const fixturePath = join(process.cwd(), 'tests', 'fixtures', 'fleet-snapshot-v1.json');
 
@@ -119,5 +122,27 @@ describe('fleet protocol v1', () => {
     expect(() => parseFleetRepositoryPage({ ...page, entries: [{ ...page.entries[1], size: null }] })).toThrow(/size/i);
     expect(() => parseFleetRepositoryPage({ ...page, entries: [{ ...page.entries[1], prompt: 'secret' }] })).toThrow(/fields/i);
     expect(() => parseFleetRepositoryPage({ ...page, relativePath: '../secret' })).toThrow(/invalid/i);
+  });
+
+  it('parses strict resource-revisioned session model state', () => {
+    const payload = {
+      sessionId: 'test-host:session-1', configRevision: '0123456789abcdef', tool: 'codex', status: 'queued',
+      selected: { modelId: 'auto', modelLabel: 'Auto', effortId: 'automatic', effortLabel: 'Automatic' },
+      effective: null,
+      pending: {
+        operationId: 'model-operation-1', modelId: 'provider/model-2', effortId: 'high', custom: false,
+        requestedAt: '2026-07-18T00:00:00Z', expiresAt: '2026-07-18T00:30:00Z'
+      },
+      catalog: { customAllowed: true, models: [{
+        id: 'provider/model-2', label: 'Provider Model 2', description: 'Discovered on host', isDefault: false,
+        efforts: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }], defaultEffort: 'high'
+      }] },
+      detail: ''
+    };
+    expect(parseFleetModelControlState(payload)).toMatchObject({ pending: { effortId: 'high' } });
+    expect(() => parseFleetModelControlState({ ...payload, transcript: 'private' })).toThrow(/fields/i);
+    expect(() => parseFleetModelControlState({
+      ...payload, catalog: { ...payload.catalog, models: [{ ...payload.catalog.models[0], id: 'bad model; echo secret' }] }
+    })).toThrow(/model id/i);
   });
 });

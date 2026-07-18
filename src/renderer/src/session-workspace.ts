@@ -8,6 +8,7 @@ import hljs from 'highlight.js';
 import type { WidgetSettings } from '../../shared/settings';
 import type { TerminalTabDescriptor, TerminalWorkspaceState } from '../../shared/terminal';
 import type { FleetAttention, FleetSession, FleetSnapshot } from '../../shared/fleet';
+import type { FleetModelControlState, FleetModelOption } from '../../shared/fleet-protocol';
 import { isFleetSessionAvailable, reconcileHiddenUnavailableSessions } from '../../shared/fleet';
 import type {
   ConversationAnswer, ConversationFrame, ConversationItem, ConversationQuestion, StagedAttachment,
@@ -132,6 +133,15 @@ export class SessionWorkspace {
   private terminalHistoryRequestActive = false;
   private terminalHistoryQueued = new Set<string>();
   private localSuggestionSettings: LocalSuggestionSettingsView = createDefaultLocalSuggestionSettings();
+  private modelStates = new Map<string, FleetModelControlState>();
+  private modelPollTimer = 0;
+  private modelPollActive = false;
+  private modelDialogSessionId = '';
+  private modelDialogLoading = false;
+  private modelDialogError = '';
+  private modelDialogModelId = '';
+  private modelDialogEffortId = '';
+  private modelDialogCustom = false;
 
   constructor(
     settings: WidgetSettings,
@@ -169,6 +179,7 @@ export class SessionWorkspace {
       this.syncConversation();
       this.syncTerminal();
       if (!document.hidden) for (const tabId of this.boundTerminalIds) this.scheduleTerminalHistory(tabId);
+      if (!document.hidden) void this.pollVisibleModelStates();
     });
     window.addEventListener('keydown', (event) => {
       if (!this.mounted || document.hidden || event.defaultPrevented) return;
@@ -236,6 +247,27 @@ export class SessionWorkspace {
         this.captureQuestionDraft(input);
         this.clearSuggestions(this.selectedId);
         input.closest('.question-part')?.querySelector('.local-suggestions')?.remove();
+      } else if (input instanceof HTMLInputElement && input.matches('[data-model-custom-id]')) {
+        this.modelDialogModelId = input.value.trim();
+      }
+    });
+    this.element.addEventListener('change', (event) => {
+      const input = event.target;
+      if (input instanceof HTMLSelectElement && input.matches('[data-model-picker]')) {
+        this.modelDialogModelId = input.value;
+        const selected = this.modelDialogState()?.catalog?.models.find((item) => item.id === input.value);
+        this.modelDialogEffortId = selected?.defaultEffort ?? 'automatic';
+        this.patchModelDialog();
+      } else if (input instanceof HTMLSelectElement && input.matches('[data-effort-picker]')) {
+        this.modelDialogEffortId = input.value;
+      } else if (input instanceof HTMLInputElement && input.matches('[data-model-custom-toggle]')) {
+        this.modelDialogCustom = input.checked;
+        if (!input.checked) {
+          const selected = this.modelDialogState()?.catalog?.models[0];
+          this.modelDialogModelId = selected?.id ?? 'auto';
+          this.modelDialogEffortId = selected?.defaultEffort ?? 'automatic';
+        }
+        this.patchModelDialog();
       }
     });
     this.element.addEventListener('scroll', (event) => {
@@ -328,6 +360,10 @@ export class SessionWorkspace {
       if (tab) this.patchLimitCard(tab);
     }
     this.patchFocusedToolbar();
+    for (const sessionId of this.modelStates.keys()) {
+      if (!snapshot.sessions.some((session) => session.id === sessionId)) this.modelStates.delete(sessionId);
+    }
+    void this.pollVisibleModelStates();
   }
 
   private applyAppearance(): void {
@@ -339,6 +375,7 @@ export class SessionWorkspace {
     this.mounted = true;
     container.append(this.element);
     this.renderStructure();
+    this.startModelPolling();
   }
 
   detach(): void {
@@ -346,6 +383,8 @@ export class SessionWorkspace {
     this.element.remove();
     for (const timer of this.terminalHistoryTimers.values()) window.clearTimeout(timer);
     this.terminalHistoryTimers.clear();
+    if (this.modelPollTimer) window.clearInterval(this.modelPollTimer);
+    this.modelPollTimer = 0;
     this.syncConversation();
     this.syncTerminal();
   }
@@ -492,6 +531,27 @@ export class SessionWorkspace {
       const query = window.prompt('Find in terminal');
       const tab = this.focusedTab();
       if (query && tab) this.runtimes.get(tab.id)?.search.findNext(query);
+      return true;
+    }
+    if (action === 'workspace-model-open') {
+      const sessionId = this.focusedTab()?.sessionId;
+      if (sessionId) void this.openModelDialog(sessionId);
+      return true;
+    }
+    if (action === 'model-control-close') {
+      this.closeModelDialog();
+      return true;
+    }
+    if (action === 'model-control-retry') {
+      if (this.modelDialogSessionId) void this.openModelDialog(this.modelDialogSessionId);
+      return true;
+    }
+    if (action === 'model-control-apply') {
+      void this.applyModelDialog();
+      return true;
+    }
+    if (action === 'model-control-cancel-pending') {
+      void this.cancelPendingModelChange();
       return true;
     }
     if (action === 'native-retry') {
@@ -698,7 +758,8 @@ export class SessionWorkspace {
           <button class="primary-button" data-action="workspace-new-session">+ New session</button>
         </div>
         <div class="workspace-pane-tree">${this.renderWorkspaceNode(this.workspaceState.layout.root)}</div>
-      </section>`;
+      </section>
+      <div data-model-control-host>${this.renderModelDialog()}</div>`;
     this.patchRail('');
     for (const pane of workspacePanes(this.workspaceState.layout)) {
       const tab = this.tabForPane(pane);
@@ -784,12 +845,23 @@ export class SessionWorkspace {
     const unavailable = Boolean(session && this.fleetSnapshot
       && !isFleetSessionAvailable(this.fleetSnapshot, session));
     const presentation = this.panePresentation(pane, session?.name, unavailable);
+    const modelState = session ? this.modelStates.get(session.id) : undefined;
+    const modelSelection = modelState?.pending
+      ? { modelLabel: modelState.pending.modelId, effortLabel: modelState.pending.effortId }
+      : modelState?.effective ?? modelState?.selected;
+    const modelLabel = modelSelection
+      ? `${modelSelection.modelLabel} · ${modelSelection.effortLabel}${modelState?.pending ? ' · queued' : ''}`
+      : 'Model · Effort';
+    const modelControl = session && ['codex', 'claude', 'copilot'].includes(session.tool)
+      ? `<button class="workspace-model-control status-${escapeAttr(modelState?.status ?? 'unknown')}" data-action="workspace-model-open" data-workspace-action ${unavailable ? 'disabled' : ''} title="Change model and reasoning effort for this session"><span>${escapeHtml(modelLabel)}</span></button>`
+      : '';
     const more = presentation.hasSessionActions
       ? `<button data-action="workspace-search" data-workspace-action>Find terminal</button><button data-action="workspace-download" data-workspace-action ${unavailable ? 'disabled' : ''}>Download a file…</button><button data-action="workspace-open-vscode" data-workspace-action ${unavailable ? 'disabled' : ''}>Open in VS Code</button><button data-action="workspace-open-windows" data-workspace-action ${unavailable ? 'disabled' : ''}>Open in Windows Terminal</button><button data-action="workspace-pane-close" data-workspace-action>Detach from pane</button><button class="danger-quiet" data-action="workspace-kill" data-workspace-action ${unavailable ? 'disabled' : ''}>Kill session…</button>`
       : '<button data-action="workspace-pane-close" data-workspace-action>Close pane</button>';
     return `<div class="workspace-focused-identity" title="${escapeAttr(presentation.context)}">
         <b>${number}</b><i class="terminal-status status-${presentation.status}" data-workspace-toolbar-status></i><span><strong data-workspace-toolbar-title>${escapeHtml(presentation.title)}</strong><small data-workspace-toolbar-context>${escapeHtml(presentation.context)}</small></span>
       </div>
+      ${modelControl}
       <div class="workspace-pane-modes" data-workspace-mode-controls><button data-action="workspace-view" data-workspace-action data-mode="native" class="${pane.viewMode === 'native' ? 'active' : ''}" ${presentation.nativeEnabled ? '' : 'disabled'}>Native</button><button data-action="workspace-view" data-workspace-action data-mode="terminal" class="${pane.viewMode === 'terminal' ? 'active' : ''}" ${presentation.terminalEnabled ? '' : 'disabled'}>Terminal</button></div>
       <button class="primary-button workspace-toolbar-retry ${presentation.retryVisible ? '' : 'invisible'}" data-action="workspace-retry" data-workspace-action ${presentation.retryVisible ? '' : 'disabled'}>Retry</button>
       <details class="workspace-actions-menu workspace-toolbar-more"><summary aria-label="More actions for ${escapeAttr(presentation.title)}">•••</summary><div>${more}</div></details>`;
@@ -946,6 +1018,7 @@ export class SessionWorkspace {
     const tab = this.tabForPane(pane);
     this.selectedId = tab?.id ?? '';
     this.patchFocusedPane();
+    void this.pollVisibleModelStates();
     if (focusContent) queueMicrotask(() => {
       if (pane.viewMode === 'terminal' && tab) this.runtimes.get(tab.id)?.terminal.focus();
       else this.element.querySelector<HTMLElement>(`[data-pane-id="${CSS.escape(pane.id)}"] textarea, [data-pane-id="${CSS.escape(pane.id)}"] button`)?.focus();
@@ -1053,6 +1126,170 @@ export class SessionWorkspace {
     if (label) label.textContent = presentation.title;
     const modeBadge = chip.querySelector<HTMLElement>('[data-pane-mode]');
     if (modeBadge) modeBadge.textContent = presentation.modeBadge;
+  }
+
+  private startModelPolling(): void {
+    if (this.modelPollTimer) return;
+    void this.pollVisibleModelStates();
+    this.modelPollTimer = window.setInterval(() => {
+      if (this.mounted && !document.hidden) void this.pollVisibleModelStates();
+    }, 10_000);
+  }
+
+  private async pollVisibleModelStates(): Promise<void> {
+    if (this.modelPollActive || !this.mounted || document.hidden || !this.fleetSnapshot) return;
+    this.modelPollActive = true;
+    try {
+      const sessionIds = [...new Set(workspacePanes(this.workspaceState.layout).map((pane) => pane.sessionId).filter(Boolean))];
+      for (const sessionId of sessionIds) {
+        const session = this.fleetSnapshot.sessions.find((item) => item.id === sessionId);
+        if (!session || !['codex', 'claude', 'copilot'].includes(session.tool)
+          || !isFleetSessionAvailable(this.fleetSnapshot, session)) continue;
+        const result = await window.limitsWidget.getFleetSessionModel(session.id, false);
+        if (!result.ok || !result.state) continue;
+        const previous = this.modelStates.get(session.id);
+        this.modelStates.set(session.id, { ...result.state, catalog: result.state.catalog ?? previous?.catalog ?? null });
+      }
+      this.patchFocusedToolbar();
+      if (this.modelDialogSessionId) this.patchModelDialog();
+    } finally {
+      this.modelPollActive = false;
+    }
+  }
+
+  private modelDialogState(): FleetModelControlState | undefined {
+    return this.modelStates.get(this.modelDialogSessionId);
+  }
+
+  private async openModelDialog(sessionId: string): Promise<void> {
+    this.modelDialogSessionId = sessionId;
+    this.modelDialogLoading = true;
+    this.modelDialogError = '';
+    this.patchModelDialog();
+    const result = await window.limitsWidget.getFleetSessionModel(sessionId, true);
+    if (this.modelDialogSessionId !== sessionId) return;
+    this.modelDialogLoading = false;
+    if (!result.ok || !result.state?.catalog) {
+      this.modelDialogError = result.message || 'Model options could not be loaded';
+      this.patchModelDialog();
+      return;
+    }
+    this.modelStates.set(sessionId, result.state);
+    const requested = result.state.pending ?? result.state.selected;
+    const catalogModel = result.state.catalog.models.find((item) => item.id === requested.modelId);
+    this.modelDialogCustom = !catalogModel;
+    this.modelDialogModelId = requested.modelId;
+    this.modelDialogEffortId = requested.effortId;
+    if (catalogModel && !catalogModel.efforts.some((item) => item.id === this.modelDialogEffortId)) {
+      this.modelDialogEffortId = catalogModel.defaultEffort;
+    }
+    this.patchFocusedToolbar();
+    this.patchModelDialog();
+  }
+
+  private closeModelDialog(): void {
+    this.modelDialogSessionId = '';
+    this.modelDialogLoading = false;
+    this.modelDialogError = '';
+    this.patchModelDialog();
+  }
+
+  private renderModelDialog(): string {
+    if (!this.modelDialogSessionId) return '';
+    const session = this.fleetSnapshot?.sessions.find((item) => item.id === this.modelDialogSessionId);
+    const state = this.modelDialogState();
+    if (this.modelDialogLoading) return `<div class="model-control-backdrop"><section class="model-control-dialog" role="dialog" aria-modal="true" aria-label="Loading model controls"><div class="model-control-loading">Loading model options…</div></section></div>`;
+    if (this.modelDialogError || !state?.catalog || !session) return `<div class="model-control-backdrop"><section class="model-control-dialog" role="dialog" aria-modal="true">
+      <header><div><small>Session model</small><h2>Could not load model options</h2></div><button data-action="model-control-close" data-workspace-action aria-label="Close">×</button></header>
+      <div class="model-control-error">${escapeHtml(this.modelDialogError || 'The session is no longer available')}</div>
+      <footer><button data-action="model-control-close" data-workspace-action>Close</button><button class="primary-button" data-action="model-control-retry" data-workspace-action>Retry</button></footer>
+    </section></div>`;
+    const catalog = state.catalog;
+    const selectedModel = catalog.models.find((item) => item.id === this.modelDialogModelId);
+    const efforts = selectedModel?.efforts ?? this.customEffortOptions(catalog.models);
+    const configurableEffort = efforts.some((item) => item.id !== 'automatic');
+    const effortAvailable = efforts.some((item) => item.id === this.modelDialogEffortId);
+    const effective = state.effective ?? state.selected;
+    const hasHistory = this.sessionHasCompletedAssistantReply(session.id);
+    const pending = state.pending;
+    const validModel = /^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}$/u.test(this.modelDialogModelId);
+    return `<div class="model-control-backdrop"><section class="model-control-dialog" role="dialog" aria-modal="true" aria-labelledby="model-control-title">
+      <header><div><small>${escapeHtml(session.tool)} · current session only</small><h2 id="model-control-title">${escapeHtml(session.name)}</h2><p>Effective: ${escapeHtml(effective.modelLabel)} · ${escapeHtml(effective.effortLabel)}</p></div><button data-action="model-control-close" data-workspace-action aria-label="Close">×</button></header>
+      ${pending ? `<div class="model-control-pending"><span><strong>Queued for idle</strong><small>${escapeHtml(pending.modelId)} · ${escapeHtml(pending.effortId)} · expires ${escapeHtml(new Date(pending.expiresAt).toLocaleTimeString())}</small></span><button data-action="model-control-cancel-pending" data-workspace-action>Cancel queued change</button></div>` : ''}
+      <label class="model-control-field"><span>Model</span><select data-model-picker ${this.modelDialogCustom ? 'disabled' : ''}>${catalog.models.map((item) => `<option value="${escapeAttr(item.id)}" ${item.id === this.modelDialogModelId ? 'selected' : ''}>${escapeHtml(item.label)}${item.isDefault ? ' (Default)' : ''}</option>`).join('')}</select><small>${escapeHtml(selectedModel?.description ?? 'Enter a provider model ID exposed to your account.')}</small></label>
+      ${catalog.customAllowed ? `<label class="model-control-custom"><input type="checkbox" data-model-custom-toggle ${this.modelDialogCustom ? 'checked' : ''}><span>Other model ID</span></label>${this.modelDialogCustom ? `<label class="model-control-field"><span>Provider model ID</span><input data-model-custom-id value="${escapeAttr(this.modelDialogModelId)}" maxlength="160" autocomplete="off" spellcheck="false"><small>Letters, numbers, dots, slashes, colons, @, +, underscores, and dashes only.</small></label>` : ''}` : ''}
+      <label class="model-control-field"><span>Reasoning effort</span><select data-effort-picker ${configurableEffort ? '' : 'disabled'}>${efforts.length ? efforts.map((item) => `<option value="${escapeAttr(item.id)}" ${item.id === this.modelDialogEffortId ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('') : '<option value="automatic">Automatic</option>'}</select><small>${configurableEffort ? 'Options come from the installed provider and selected model.' : 'This provider does not expose session-only effort control for the selected model.'}</small></label>
+      <div class="model-control-note ${hasHistory ? 'warning' : ''}">${hasHistory ? '<strong>Changing model or effort can reduce prompt-cache reuse and change cost for the rest of this session.</strong>' : 'The change applies only to this running session. Global and project defaults are unchanged.'}</div>
+      ${state.detail ? `<div class="model-control-error">${escapeHtml(state.detail)}</div>` : ''}
+      <footer><span>${escapeHtml(state.status === 'queued' || state.status === 'applying' ? 'A newer confirmed choice replaces the queued request.' : 'Changes wait safely if the agent is busy.')}</span><button data-action="model-control-close" data-workspace-action>Close</button><button class="primary-button" data-action="model-control-apply" data-workspace-action ${!validModel || !effortAvailable ? 'disabled' : ''}>Apply</button></footer>
+    </section></div>`;
+  }
+
+  private customEffortOptions(models: FleetModelOption[]): Array<{ id: string; label: string }> {
+    const values = new Map<string, string>([['automatic', 'Automatic']]);
+    for (const model of models) for (const item of model.efforts) values.set(item.id, item.label);
+    return [...values].map(([id, label]) => ({ id, label }));
+  }
+
+  private patchModelDialog(): void {
+    const host = this.element.querySelector<HTMLElement>('[data-model-control-host]');
+    if (host) host.innerHTML = this.renderModelDialog();
+  }
+
+  private sessionHasCompletedAssistantReply(sessionId: string): boolean {
+    const tab = [...this.tabs.values()].find((item) => item.sessionId === sessionId);
+    const items = tab ? this.nativeStates.get(tab.id)?.items ?? [] : [];
+    const observedReply = items.some((item) => item.role === 'assistant'
+      && (item.state === 'complete' || Boolean(item.completedAt) || item.kind === 'message')
+      && Boolean(item.text || item.detail));
+    // Terminal mode intentionally does not fetch conversation content. Warn
+    // conservatively there so an existing reply never bypasses the cache/cost
+    // acknowledgement merely because Native history has not been opened.
+    return observedReply || workspacePanes(this.workspaceState.layout)
+      .some((pane) => pane.sessionId === sessionId && pane.viewMode === 'terminal');
+  }
+
+  private async applyModelDialog(): Promise<void> {
+    const sessionId = this.modelDialogSessionId;
+    const state = this.modelDialogState();
+    if (!sessionId || !state || !this.modelDialogModelId || !this.modelDialogEffortId) return;
+    const acknowledged = !this.sessionHasCompletedAssistantReply(sessionId) || window.confirm(
+      'Changing model or effort after a reply can reduce prompt-cache reuse and change cost. Apply to this session?'
+    );
+    if (!acknowledged) return;
+    this.modelDialogLoading = true;
+    this.patchModelDialog();
+    const result = await window.limitsWidget.setFleetSessionModel(
+      sessionId, this.modelDialogModelId, this.modelDialogEffortId, this.modelDialogCustom,
+      state.configRevision, acknowledged
+    );
+    this.modelDialogLoading = false;
+    if (!result.ok || !result.state) {
+      this.modelDialogError = result.message || 'The model change could not be queued';
+      this.patchModelDialog();
+      return;
+    }
+    this.modelStates.set(sessionId, { ...result.state, catalog: state.catalog });
+    this.patchFocusedToolbar();
+    this.patchModelDialog();
+    void this.pollVisibleModelStates();
+  }
+
+  private async cancelPendingModelChange(): Promise<void> {
+    const sessionId = this.modelDialogSessionId;
+    const state = this.modelDialogState();
+    if (!sessionId || !state?.pending) return;
+    this.modelDialogLoading = true;
+    this.patchModelDialog();
+    const result = await window.limitsWidget.cancelFleetSessionModel(sessionId, state.configRevision);
+    this.modelDialogLoading = false;
+    if (!result.ok || !result.state) {
+      this.modelDialogError = result.message || 'The queued change could not be cancelled';
+    } else {
+      this.modelStates.set(sessionId, { ...result.state, catalog: state.catalog });
+    }
+    this.patchFocusedToolbar();
+    this.patchModelDialog();
   }
 
   private patchFocusedToolbar(): void {

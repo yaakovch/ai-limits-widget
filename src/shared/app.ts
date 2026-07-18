@@ -1,5 +1,5 @@
 import type { CodexProfileSettings, SettingsImportPreview, WidgetSettings } from './settings';
-import type { FleetDirectoryListing, FleetRepositoryPage } from './fleet-protocol';
+import type { FleetDirectoryListing, FleetModelControlState, FleetRepositoryPage } from './fleet-protocol';
 
 export interface AppInfo {
   name: string;
@@ -78,6 +78,13 @@ export interface FleetRepositoryResult {
   message: string;
   retryable?: boolean;
   page?: FleetRepositoryPage;
+}
+
+export interface FleetModelControlResult {
+  ok: boolean;
+  message: string;
+  retryable?: boolean;
+  state?: FleetModelControlState;
 }
 
 export type FleetDownloadState = 'running' | 'completed' | 'failed' | 'cancelled';

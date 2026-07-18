@@ -4,6 +4,7 @@ import type {
   ClaudeIntegrationState,
   FileOperationResult,
   FleetDirectoryResult,
+  FleetModelControlResult,
   FleetDownloadJob,
   FleetDownloadResult,
   FleetRepositoryResult,
@@ -94,6 +95,16 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.killFleetSession, sessionId),
   renameFleetSession: (sessionId: string, name: string): Promise<{ ok: boolean; message: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.renameFleetSession, sessionId, name),
+  getFleetSessionModel: (sessionId: string, includeCatalog = false): Promise<FleetModelControlResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getFleetSessionModel, sessionId, includeCatalog),
+  setFleetSessionModel: (
+    sessionId: string, modelId: string, effortId: string, custom: boolean, expectedConfigRevision: string,
+    historyImpactAcknowledged: boolean
+  ): Promise<FleetModelControlResult> => ipcRenderer.invoke(
+    IPC_CHANNELS.setFleetSessionModel, sessionId, modelId, effortId, custom, expectedConfigRevision, historyImpactAcknowledged
+  ),
+  cancelFleetSessionModel: (sessionId: string, expectedConfigRevision: string): Promise<FleetModelControlResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.cancelFleetSessionModel, sessionId, expectedConfigRevision),
   copyFleetAttachCommand: (sessionId: string): Promise<{ ok: boolean; message: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.copyFleetAttachCommand, sessionId),
   toggleFleetFavorite: (sessionId: string): Promise<{ ok: boolean; message: string }> =>

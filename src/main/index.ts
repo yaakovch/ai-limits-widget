@@ -838,6 +838,76 @@ handle(IPC_CHANNELS.renameFleetSession, async (_event, sessionId, name) => {
     return fleetMutationFailure(error);
   }
 });
+handle(IPC_CHANNELS.getFleetSessionModel, async (_event, sessionId, includeCatalog) => {
+  if (typeof sessionId !== 'string' || typeof includeCatalog !== 'boolean') {
+    return { ok: false, message: 'Model control request is invalid' };
+  }
+  const snapshot = getFleetView().snapshot;
+  const selected = snapshot.sessions.find((item) => item.id === sessionId);
+  if (!selected || !isFleetSessionAvailable(snapshot, selected)) {
+    return { ok: false, message: 'Session host is offline or no longer available', retryable: true };
+  }
+  if (!['codex', 'claude', 'copilot'].includes(selected.tool)) {
+    return { ok: false, message: 'This session does not support model controls' };
+  }
+  try {
+    const state = await fleetBridge.mutate('session.model.get', {
+      hostId: selected.hostId, sessionId: selected.id, includeCatalog
+    });
+    return { ok: true, message: 'Model selection loaded', state };
+  } catch (error) {
+    return fleetMutationFailure(error);
+  }
+});
+handle(IPC_CHANNELS.setFleetSessionModel, async (
+  _event, sessionId, modelId, effortId, custom, expectedConfigRevision, historyImpactAcknowledged
+) => {
+  if (typeof sessionId !== 'string' || typeof modelId !== 'string' || typeof effortId !== 'string'
+    || typeof custom !== 'boolean' || typeof expectedConfigRevision !== 'string'
+    || typeof historyImpactAcknowledged !== 'boolean'
+    || !/^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,159}$/u.test(modelId)
+    || !/^[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}$/u.test(effortId)
+    || !/^[a-f0-9]{16}$/u.test(expectedConfigRevision)) {
+    return { ok: false, message: 'Model or effort selection is invalid' };
+  }
+  const snapshot = getFleetView().snapshot;
+  const selected = snapshot.sessions.find((item) => item.id === sessionId);
+  if (!selected || !isFleetSessionAvailable(snapshot, selected)) {
+    return { ok: false, message: 'Session host is offline or no longer available', retryable: true };
+  }
+  try {
+    const result = await fleetBridge.mutate('session.model.set', {
+      hostId: selected.hostId, sessionId: selected.id, modelId, effortId, custom,
+      expectedConfigRevision, historyImpactAcknowledged, idempotencyKey: randomUUID()
+    });
+    return {
+      ok: true,
+      message: result.status === 'queued' ? 'Model change queued until the session is idle' : 'Model selection updated',
+      state: result.modelControl
+    };
+  } catch (error) {
+    return fleetMutationFailure(error);
+  }
+});
+handle(IPC_CHANNELS.cancelFleetSessionModel, async (_event, sessionId, expectedConfigRevision) => {
+  if (typeof sessionId !== 'string' || typeof expectedConfigRevision !== 'string'
+    || !/^[a-f0-9]{16}$/u.test(expectedConfigRevision)) {
+    return { ok: false, message: 'Model control request is invalid' };
+  }
+  const snapshot = getFleetView().snapshot;
+  const selected = snapshot.sessions.find((item) => item.id === sessionId);
+  if (!selected || !isFleetSessionAvailable(snapshot, selected)) {
+    return { ok: false, message: 'Session host is offline or no longer available', retryable: true };
+  }
+  try {
+    const result = await fleetBridge.mutate('session.model.cancel', {
+      hostId: selected.hostId, sessionId: selected.id, expectedConfigRevision, idempotencyKey: randomUUID()
+    });
+    return { ok: true, message: result.status === 'already-clear' ? 'No model change was queued' : 'Queued model change cancelled', state: result.modelControl };
+  } catch (error) {
+    return fleetMutationFailure(error);
+  }
+});
 handle(IPC_CHANNELS.copyFleetAttachCommand, (_event, sessionId) => {
   if (typeof sessionId !== 'string') return { ok: false, message: 'Session is invalid' };
   const snapshot = getFleetView().snapshot;
