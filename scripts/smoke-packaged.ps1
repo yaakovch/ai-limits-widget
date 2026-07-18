@@ -18,11 +18,13 @@ try {
   $env:AGENT_FLEET_ENABLE_TERMINAL_SMOKE = '1'
   $terminalProcess = Start-Process -FilePath $Executable -ArgumentList "--agent-fleet-terminal-smoke=$terminalResult" -WindowStyle Hidden -Wait -PassThru
   if ($terminalProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $terminalResult)) {
-    throw "Packaged ConPTY/WSL smoke failed with code $($terminalProcess.ExitCode)"
+    throw "Packaged terminal smoke failed with code $($terminalProcess.ExitCode)"
   }
   $terminalStatus = Get-Content -LiteralPath $terminalResult -Raw | ConvertFrom-Json
-  if ($terminalStatus.status -ne 'ok' -or -not $terminalStatus.marker) { throw 'Packaged ConPTY did not return the expected WSL marker.' }
-  Write-Output "Packaged smoke test passed: PID $($process.Id)"
+  if ($terminalStatus.status -ne 'ok' -or -not $terminalStatus.marker -or $terminalStatus.backend -notin @('wsl', 'conpty')) {
+    throw 'Packaged ConPTY terminal did not return the expected marker.'
+  }
+  Write-Output "Packaged smoke test passed: PID $($process.Id), terminal $($terminalStatus.backend)"
 } finally {
   Remove-Item Env:AGENT_FLEET_ENABLE_TERMINAL_SMOKE -ErrorAction SilentlyContinue
   if ($process) {
