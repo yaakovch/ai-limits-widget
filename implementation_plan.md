@@ -476,3 +476,16 @@ the portable SHA-256 is
 No local llama.cpp installation was available, so managed-backend validation
 uses its exact fixed arguments/lifecycle fake while the external adapter uses
 a real loopback server.
+
+## 28. Direct-Reply Suggestion Prompt
+
+1. Put quoted conversation context before a final direct-reply task on every
+   backend. Require verbatim human-user messages, prohibit explanation or
+   paraphrase, match the recent user language, and prefer a contextual mix
+   without forcing three results.
+2. Add the reported `It means...` failure as a prompt-contract regression for
+   composer and structured-text targets while retaining existing conservative
+   claims, JSON parsing, privacy, cancellation, and fill-without-send behavior.
+3. Run lint, all tests, production Windows packaging, and packaged ConPTY/WSL
+   smoke. Release `0.11.0-beta.17` through the existing updater and retain
+   beta.16 for rollback.

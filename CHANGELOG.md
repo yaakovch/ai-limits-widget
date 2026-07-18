@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0-beta.17 - 2026-07-18
+
+- Reworked local suggestions to draft messages the human user can send
+  verbatim instead of explaining or paraphrasing the assistant response.
+- Put the direct-reply task after quoted conversation context, match the user's
+  recent language, and prefer useful acknowledgments, next steps, or questions
+  without padding the result set.
+- Kept inference user-triggered, local, conservative, and outside the wtmux
+  protocol, workspace state, logs, diagnostics, and automatic submission.
+
 ## 0.11.0-beta.16 - 2026-07-17
 
 - Added opt-in, user-triggered local reply suggestions to Native composers and

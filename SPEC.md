@@ -460,8 +460,13 @@ areas.
   always user-triggered; selecting a result fills the draft and never sends it.
 - Each request contains only the newest 12 visible user/assistant text messages,
   newest-first bounded to 12 KiB UTF-8. Tool activity, terminal output,
-  attachments, hidden content, approvals, and choices are excluded. Results are
-  one to three concise, conservative, distinct first-person reply drafts.
+  attachments, hidden content, approvals, and choices are excluded. The prompt
+  treats that transcript as quoted context and ends with an explicit task to
+  produce one to three concise messages the human user can send verbatim.
+- Suggestions must respond to the latest assistant message or structured text
+  question rather than explain, interpret, summarize, or restate it. They match
+  the user's recent language, fall back to the assistant's language, and return
+  fewer options instead of padding an irrelevant set.
 - Managed mode launches a user-selected `llama-server.exe` and GGUF with fixed
   safe arguments: loopback ephemeral port, random API key, 4,096 context,
   automatic fitting GPU layers, and 60-second idle sleep. Agent Fleet owns and

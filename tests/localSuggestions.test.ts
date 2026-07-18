@@ -50,10 +50,29 @@ describe('local reply suggestions', () => {
     expect(canSuggestForQuestion({ ...question, type: 'single' }, '')).toBe(false);
   });
 
-  it('builds a conservative JSON-only prompt and includes a text question', () => {
+  it('ends with a direct-reply task after the quoted conversation', () => {
+    const prompt = localSuggestionPrompt({
+      requestId: 'r', tabId: 't', revision: 'v', target: { kind: 'composer' },
+      messages: [
+        { role: 'user', text: 'What is a completed assistant reply?' },
+        { role: 'assistant', text: 'It is a response that has succeeded.' }
+      ]
+    });
+    expect(prompt[0].role).toBe('system');
+    expect(prompt.at(-2)).toEqual({ role: 'assistant', content: 'It is a response that has succeeded.' });
+    expect(prompt.at(-1)?.role).toBe('user');
+    expect(prompt.at(-1)?.content).toContain('send verbatim');
+    expect(prompt.at(-1)?.content).toContain('Do not explain, summarize, interpret, or restate');
+    expect(prompt.at(-1)?.content).toContain('Wrong: "It means the assistant has finished."');
+    expect(prompt.at(-1)?.content).toContain('Right: "Got it, thanks."');
+    expect(prompt.at(-1)?.content).toContain('language of the most recent USER messages');
+    expect(prompt.at(-1)?.content).toContain('{"suggestions":["..."]}');
+  });
+
+  it('makes a structured text question the explicit reply target', () => {
     const prompt = localSuggestionPrompt({ requestId: 'r', tabId: 't', revision: 'v', target: { kind: 'question', itemId: 'i', questionId: 'q', prompt: 'Pick a name' }, messages: [{ role: 'assistant', text: 'What name?' }] });
-    expect(prompt[0].content).toContain('Never claim');
-    expect(prompt.at(-1)?.content).toContain('Pick a name');
+    expect(prompt[0].content).toContain('Never invent');
+    expect(prompt.at(-1)?.content).toContain('direct answer to this structured question: Pick a name');
   });
 
   it('parses JSON or numbered output, deduplicates, and caps results', () => {
