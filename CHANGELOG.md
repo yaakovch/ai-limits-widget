@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0-beta.18 - 2026-07-19
+
+- Added one compact current-session model and reasoning-effort control to the
+  focused Native or Terminal workspace toolbar for Codex, Claude, and Copilot.
+- Added provider-discovered catalogs, private custom model IDs, exact-session
+  revisions, safe idle queuing, cancellation, expiry, and effective-selection
+  reporting without restarting agents or changing project/global defaults.
+- Added cache/cost acknowledgement after replies, strict protocol validation,
+  and packaged ConPTY smoke coverage for both WSL-equipped desktops and CI.
+
 ## 0.11.0-beta.17 - 2026-07-18
 
 - Reworked local suggestions to draft messages the human user can send
