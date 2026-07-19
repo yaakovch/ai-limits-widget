@@ -21,8 +21,8 @@ export class LocalSuggestionStore {
 
   view(): LocalSuggestionSettingsView {
     return {
-      version: 1,
-      enabled: this.stored.enabled,
+      version: 2,
+      mode: this.stored.mode,
       backend: this.stored.backend,
       managed: { ...this.stored.managed },
       external: {
@@ -44,8 +44,8 @@ export class LocalSuggestionStore {
       : typeof input.external.bearerToken === 'string' && input.external.bearerToken
         ? this.secrets.encrypt(input.external.bearerToken) : previousToken;
     this.stored = {
-      version: 1,
-      enabled: Boolean(input.enabled),
+      version: 2,
+      mode: normalizeMode(input.mode),
       backend: input.backend === 'openAICompatible' ? 'openAICompatible' : 'managedLlamaCpp',
       managed: {
         executablePath: String(input.managed?.executablePath ?? '').trim(),
@@ -69,11 +69,13 @@ export class LocalSuggestionStore {
       external: { baseUrl: defaults.external.baseUrl, modelId: defaults.external.modelId, encryptedBearerToken: '' }
     };
     try {
-      const input = JSON.parse(readFileSync(this.path, 'utf8')) as Partial<StoredLocalSuggestionSettings>;
-      if (input.version !== 1) return fallback;
+      const input = JSON.parse(readFileSync(this.path, 'utf8')) as Partial<Omit<StoredLocalSuggestionSettings, 'version'>>
+        & { version?: number; enabled?: boolean };
+      const legacyEnabled = Boolean(input.enabled);
+      if (input.version !== 1 && input.version !== 2) return fallback;
       return {
-        version: 1,
-        enabled: Boolean(input.enabled),
+        version: 2,
+        mode: input.version === 1 ? (legacyEnabled ? 'manual' : 'off') : normalizeMode(input.mode),
         backend: input.backend === 'openAICompatible' ? 'openAICompatible' : 'managedLlamaCpp',
         managed: {
           executablePath: typeof input.managed?.executablePath === 'string' ? input.managed.executablePath : '',
@@ -94,4 +96,8 @@ export class LocalSuggestionStore {
     writeFileSync(temporary, `${JSON.stringify(this.stored, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
     renameSync(temporary, this.path);
   }
+}
+
+function normalizeMode(value: unknown): LocalSuggestionSettingsView['mode'] {
+  return value === 'manual' || value === 'automatic' ? value : 'off';
 }

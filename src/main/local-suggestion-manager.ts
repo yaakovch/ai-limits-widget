@@ -12,6 +12,7 @@ import type {
 import {
   boundSuggestionContext,
   isLoopbackSuggestionUrl,
+  localSuggestionsEnabled,
   localSuggestionPrompt,
   parseLocalSuggestions
 } from '../shared/local-suggestions';
@@ -28,10 +29,11 @@ export class LocalSuggestionManager {
   settings(): LocalSuggestionSettingsView { return this.store.view(); }
 
   async save(input: LocalSuggestionSettingsInput): Promise<LocalSuggestionOperationResult> {
-    if (input.enabled && input.backend === 'openAICompatible' && !isLoopbackSuggestionUrl(input.external.baseUrl)) {
+    const enabled = localSuggestionsEnabled(input.mode);
+    if (enabled && input.backend === 'openAICompatible' && !isLoopbackSuggestionUrl(input.external.baseUrl)) {
       throw new Error('External backend must use localhost, 127.x, or ::1.');
     }
-    if (input.enabled && input.backend === 'managedLlamaCpp'
+    if (enabled && input.backend === 'managedLlamaCpp'
       && (!input.managed.executablePath.trim() || !input.managed.modelPath.trim())) {
       throw new Error('Choose llama-server.exe and a GGUF model before enabling local suggestions.');
     }
@@ -40,9 +42,12 @@ export class LocalSuggestionManager {
     const managedChanged = before.backend !== settings.backend
       || before.managed.executablePath !== settings.managed.executablePath
       || before.managed.modelPath !== settings.managed.modelPath;
-    if (!settings.enabled || managedChanged) this.stopManaged();
-    if (!settings.enabled) this.cancel();
-    return { ok: true, message: settings.enabled ? 'Local reply suggestions enabled.' : 'Local reply suggestions disabled; managed model memory was released.', settings };
+    if (!localSuggestionsEnabled(settings.mode) || managedChanged) this.stopManaged();
+    if (!localSuggestionsEnabled(settings.mode)) this.cancel();
+    const message = settings.mode === 'off'
+      ? 'Local reply suggestions disabled; managed model memory was released.'
+      : `Local reply suggestions set to ${settings.mode === 'automatic' ? 'Automatic' : 'Manual'}.`;
+    return { ok: true, message, settings };
   }
 
   async test(): Promise<LocalSuggestionOperationResult> {
@@ -61,7 +66,7 @@ export class LocalSuggestionManager {
   async suggest(input: LocalSuggestionRequest): Promise<LocalSuggestionResult> {
     const settings = this.store.view();
     const request = normalizeRequest(input);
-    if (!settings.enabled) return failure(request, 'Enable local reply suggestions in Settings first.');
+    if (!localSuggestionsEnabled(settings.mode)) return failure(request, 'Enable local reply suggestions in Settings first.');
     this.cancel();
     const abort = new AbortController();
     this.active = { requestId: request.requestId, abort };

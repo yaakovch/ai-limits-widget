@@ -84,6 +84,9 @@ describe('native conversation presentation', () => {
     expect(source).toContain('canSuggestForQuestion');
     expect(source).toContain('data-action="native-suggestion-use"');
     expect(source).toContain('state.draft = value');
+    expect(source).toContain('Preparing replies locally…');
+    expect(source).toContain('maybeStartAutomaticSuggestion');
+    expect(source).toContain('frame.type === \'conversation.snapshot\'');
     expect(stylesheet).toContain('textarea[data-native-message]:not(:placeholder-shown)');
   });
 });

@@ -501,3 +501,19 @@ project secrets are not configured, and the controller has no code-signing
 certificate. As with beta.16, these private-beta files are unsigned; beta.16's
 configured signature check therefore requires a manual beta.17 install rather
 than an automatic update. Beta.16 remains available for rollback.
+
+## 29. Automatic Local Reply Drafts
+
+1. Replace the local enabled flag with Off, Manual, and Automatic modes;
+   migrate enabled version-1 settings to Manual and disabled settings to Off.
+2. Baseline focused Native sessions on open, focus, snapshot, reconnect, and
+   mode change. Trigger once only when a later live assistant reply completes
+   or the active structured free-text question changes.
+3. Show cancelable preparation, selectable drafts, Regenerate, and quiet inline
+   Retry states. Typing, attachments, navigation, backgrounding, newer context,
+   and Off cancel work; choices continue to fill without submitting.
+4. Cover migration, live-versus-historical revisions, inactive panes,
+   cancellation, stale results, questions, and renderer contracts. Run lint,
+   all tests, production packaging, and packaged ConPTY/WSL smoke.
+5. Release `0.11.0-beta.19` through the updater, retain beta.18 for rollback,
+   and record installer and portable checksums before Android parity rollout.

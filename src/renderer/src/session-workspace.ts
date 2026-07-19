@@ -20,6 +20,9 @@ import {
   canSuggestForQuestion,
   conversationSuggestionContext,
   createDefaultLocalSuggestionSettings,
+  localSuggestionRevision,
+  localSuggestionsEnabled,
+  shouldStartAutomaticSuggestion,
   type LocalSuggestionSettingsView,
   type LocalSuggestionTarget
 } from '../../shared/local-suggestions';
@@ -93,7 +96,9 @@ interface NativeState {
     loading: boolean;
     values: string[];
     error: string;
+    automatic: boolean;
   };
+  automaticSuggestionKey: string;
 }
 
 interface RenderSnapshot {
@@ -167,15 +172,25 @@ export class SessionWorkspace {
     window.limitsWidget.onWorkspaceUpdated((state) => this.applyWorkspaceState(state));
     window.limitsWidget.onConversationEvent(({ tabId, frame }) => this.applyConversationFrame(tabId, frame));
     window.limitsWidget.onLocalSuggestionSettingsUpdated((settings) => {
+      const changed = settings.mode !== this.localSuggestionSettings.mode;
       this.localSuggestionSettings = settings;
-      if (!settings.enabled) for (const [tabId] of this.nativeStates) this.clearSuggestions(tabId, true);
+      if (changed) for (const [tabId] of this.nativeStates) {
+        this.clearSuggestions(tabId, true);
+        this.baselineAutomaticSuggestion(tabId);
+      }
       for (const tabId of this.nativeStates.keys()) this.queueNativeRender(tabId);
     });
     void window.limitsWidget.getLocalSuggestionSettings().then((settings) => {
       this.localSuggestionSettings = settings;
+      for (const [tabId] of this.nativeStates) this.baselineAutomaticSuggestion(tabId);
       for (const tabId of this.nativeStates.keys()) this.queueNativeRender(tabId);
     });
     document.addEventListener('visibilitychange', () => {
+      if (document.hidden) for (const [tabId] of this.nativeStates) {
+        this.clearSuggestions(tabId, true);
+        this.baselineAutomaticSuggestion(tabId);
+      }
+      else if (this.selectedId) this.baselineAutomaticSuggestion(this.selectedId);
       this.syncConversation();
       this.syncTerminal();
       if (!document.hidden) for (const tabId of this.boundTerminalIds) this.scheduleTerminalHistory(tabId);
@@ -239,13 +254,13 @@ export class SessionWorkspace {
       } else if (input instanceof HTMLTextAreaElement && input.matches('[data-native-message]')) {
         const tabId = this.tabIdFromControl(input);
         if (tabId) {
-          this.nativeState(tabId).draft = input.value; this.clearSuggestions(tabId);
+          this.nativeState(tabId).draft = input.value; this.clearSuggestions(tabId, true);
           input.closest('.native-composer')?.querySelector('.local-suggestions')?.remove();
         }
       } else if (input instanceof HTMLTextAreaElement && input.matches('[data-question-text]')) {
         this.selectFromControl(input, false);
         this.captureQuestionDraft(input);
-        this.clearSuggestions(this.selectedId);
+        this.clearSuggestions(this.selectedId, true);
         input.closest('.question-part')?.querySelector('.local-suggestions')?.remove();
       } else if (input instanceof HTMLInputElement && input.matches('[data-model-custom-id]')) {
         this.modelDialogModelId = input.value.trim();
@@ -385,6 +400,7 @@ export class SessionWorkspace {
     this.terminalHistoryTimers.clear();
     if (this.modelPollTimer) window.clearInterval(this.modelPollTimer);
     this.modelPollTimer = 0;
+    for (const [tabId] of this.nativeStates) this.clearSuggestions(tabId, true);
     this.syncConversation();
     this.syncTerminal();
   }
@@ -600,6 +616,7 @@ export class SessionWorkspace {
         const state = this.nativeState(this.selectedId);
         state.questionSteps.set(item.id, Math.max(0, (state.questionSteps.get(item.id) ?? 0) - 1));
         state.renderMode = 'preserve';
+        this.maybeStartAutomaticSuggestion(this.selectedId);
         this.renderSelectedNative();
       }
       return true;
@@ -671,6 +688,11 @@ export class SessionWorkspace {
     }
     if (action === 'native-send') { void this.sendMessage(); return true; }
     if (action === 'native-suggest') { void this.requestSuggestions(control); return true; }
+    if (action === 'native-suggestion-regenerate') {
+      const suggestion = this.nativeState(this.selectedId).suggestion;
+      if (suggestion.target) void this.requestSuggestionTarget(this.selectedId, suggestion.target, suggestion.automatic);
+      return true;
+    }
     if (action === 'native-suggestion-use') { this.useSuggestion(control); return true; }
     if (action === 'native-suggestion-cancel') { this.clearSuggestions(this.selectedId, true); this.renderSelectedNative(); return true; }
     if (action === 'native-shift-tab') { void window.limitsWidget.terminalInput(this.selectedId, '\u001b[Z'); return true; }
@@ -703,8 +725,13 @@ export class SessionWorkspace {
     for (const id of this.terminalHistories.keys()) if (!nextIds.has(id)) this.clearTerminalHistory(id);
     this.tabs = new Map(state.tabs.map((tab) => [tab.id, tab]));
     this.workspaceState = state;
+    const previousSelectedId = this.selectedId;
     const sessionId = focusedPane(state.layout).sessionId;
     this.selectedId = state.tabs.find((tab) => tab.sessionId === sessionId)?.id ?? '';
+    if (previousSelectedId !== this.selectedId) {
+      if (previousSelectedId) this.clearSuggestions(previousSelectedId, true);
+      if (this.selectedId) this.baselineAutomaticSuggestion(this.selectedId);
+    }
     if (!this.mounted) return;
     if (previousStructure !== workspaceStructureSignature(state)) this.renderStructure();
     else {
@@ -1004,7 +1031,12 @@ export class SessionWorkspace {
     if (!paneId) return;
     const pane = workspacePanes(this.workspaceState.layout).find((item) => item.id === paneId);
     const tab = pane ? this.tabForPane(pane) : undefined;
+    const previousSelectedId = this.selectedId;
     this.selectedId = tab?.id ?? '';
+    if (previousSelectedId !== this.selectedId) {
+      if (previousSelectedId) this.clearSuggestions(previousSelectedId, true);
+      if (this.selectedId) this.baselineAutomaticSuggestion(this.selectedId);
+    }
     if (paneId !== this.workspaceState.layout.focusedPaneId) void this.focusPane(paneId, persistFocus);
   }
 
@@ -1015,8 +1047,13 @@ export class SessionWorkspace {
       ...this.workspaceState,
       layout: { ...this.workspaceState.layout, focusedPaneId: paneId }
     };
+    const previousSelectedId = this.selectedId;
     const tab = this.tabForPane(pane);
     this.selectedId = tab?.id ?? '';
+    if (previousSelectedId !== this.selectedId) {
+      if (previousSelectedId) this.clearSuggestions(previousSelectedId, true);
+      if (this.selectedId) this.baselineAutomaticSuggestion(this.selectedId);
+    }
     this.patchFocusedPane();
     void this.pollVisibleModelStates();
     if (focusContent) queueMicrotask(() => {
@@ -1363,7 +1400,8 @@ export class SessionWorkspace {
         scrollTop: 0, scrollHeight: 0, scrollInitialized: false, followOutput: true, newMessages: false,
         renderMode: 'initial', questionDrafts: new Map(), questionSteps: new Map(),
         submittingQuestions: new Set(), expandedDetails: new Set(), questionSheetId: '', viewer: null,
-        suggestion: { requestId: '', revision: '', target: null, loading: false, values: [], error: '' } };
+        suggestion: { requestId: '', revision: '', target: null, loading: false, values: [], error: '', automatic: false },
+        automaticSuggestionKey: '' };
       this.nativeStates.set(tabId, state);
     }
     return state;
@@ -1439,6 +1477,7 @@ export class SessionWorkspace {
     if (state.suggestion.target && suggestionRevisionBefore !== this.suggestionRevision(state, state.suggestion.target)) {
       this.clearSuggestions(tabId, true);
     }
+    this.maybeStartAutomaticSuggestion(tabId, frame.type === 'conversation.snapshot');
     this.queueNativeRender(tabId);
   }
 
@@ -1492,7 +1531,7 @@ export class SessionWorkspace {
   private renderPendingAction(item: ConversationItem, state: NativeState): string {
     const content = item.kind === 'question'
       ? renderQuestion(item, state.questionSteps.get(item.id) ?? 0, state.questionDrafts.get(item.id), state.submittingQuestions.has(item.id),
-        this.localSuggestionSettings.enabled ? state.suggestion : undefined)
+        localSuggestionsEnabled(this.localSuggestionSettings.mode) ? state.suggestion : undefined, this.localSuggestionSettings.mode)
       : renderConversationItem(item);
     const label = item.kind === 'question' ? (item.title || 'Answer needed') : (item.title || 'Approval needed');
     return `<section class="native-answer-bar ${state.interactionMode === 'plan' ? 'planning' : ''}" data-conversation-item="${escapeAttr(item.id)}"><button data-action="native-question-open" data-workspace-action><span><strong>${escapeHtml(label)}</strong><small>Tap to respond</small></span><b>Open</b></button></section>
@@ -1500,19 +1539,21 @@ export class SessionWorkspace {
   }
 
   private renderComposer(tab: TerminalTabDescriptor, state: NativeState): string {
-    const canSuggest = this.localSuggestionSettings.enabled && canSuggestForComposer(state.items, state.draft);
+    const canSuggest = localSuggestionsEnabled(this.localSuggestionSettings.mode) && !state.attachments.length
+      && canSuggestForComposer(state.items, state.draft);
+    const suggestionLabel = this.localSuggestionSettings.mode === 'automatic' ? 'Regenerate' : 'Suggest';
     return `<div class="native-composer ${state.interactionMode === 'plan' ? 'planning' : ''}" data-composer-tab="${escapeAttr(tab.id)}">
       ${state.attachments.length ? `<div class="attachment-strip">${state.attachments.map((item) => `<button data-action="native-remove-attachment" data-workspace-action data-attachment-id="${escapeAttr(item.id)}" title="Remove ${escapeAttr(item.name)}"><img src="${item.thumbnail}" alt=""><span>${escapeHtml(item.name)}</span><b>×</b></button>`).join('')}</div>` : ''}
       ${state.notice ? `<small class="composer-notice">${escapeHtml(state.notice)}</small>` : ''}
       <textarea data-native-message data-focus-key="native-message" maxlength="32768" placeholder="Message ${escapeAttr(tab.tool)}… (Ctrl+Enter to send)">${escapeHtml(state.draft)}</textarea>
       ${state.suggestion.target?.kind === 'composer' ? renderSuggestionChoices(state.suggestion) : ''}
-      <div class="composer-actions"><button data-action="native-attach" data-workspace-action title="Choose images">Attach</button><button data-action="native-clipboard" data-workspace-action title="Paste image from clipboard">Paste image</button><button data-action="native-shift-tab" data-workspace-action>Shift+Tab</button><button data-action="native-control-c" data-workspace-action>Ctrl+C</button>${canSuggest ? '<button data-action="native-suggest" data-workspace-action data-suggestion-target="composer">Suggest</button>' : ''}<span></span><button class="primary-button" data-action="native-send" data-workspace-action>Send</button></div>
+      <div class="composer-actions"><button data-action="native-attach" data-workspace-action title="Choose images">Attach</button><button data-action="native-clipboard" data-workspace-action title="Paste image from clipboard">Paste image</button><button data-action="native-shift-tab" data-workspace-action>Shift+Tab</button><button data-action="native-control-c" data-workspace-action>Ctrl+C</button>${canSuggest && !state.suggestion.target ? `<button data-action="native-suggest" data-workspace-action data-suggestion-target="composer">${suggestionLabel}</button>` : ''}<span></span><button class="primary-button" data-action="native-send" data-workspace-action>Send</button></div>
     </div>`;
   }
 
   private async requestSuggestions(control: HTMLElement): Promise<void> {
     const tabId = this.selectedId;
-    if (!tabId || !this.localSuggestionSettings.enabled) return;
+    if (!tabId || !localSuggestionsEnabled(this.localSuggestionSettings.mode)) return;
     const state = this.nativeState(tabId);
     let target: LocalSuggestionTarget = { kind: 'composer' };
     if (control.dataset.suggestionTarget === 'question') {
@@ -1522,12 +1563,18 @@ export class SessionWorkspace {
       const draft = item && question ? state.questionDrafts.get(item.id)?.find((answer) => answer.questionId === question.id)?.text ?? '' : '';
       if (!item || !question || !canSuggestForQuestion(question, draft)) return;
       target = { kind: 'question', itemId: item.id, questionId: question.id, prompt: question.prompt };
-    } else if (!canSuggestForComposer(state.items, state.draft)) return;
+    } else if (!canSuggestForComposer(state.items, state.draft) || state.attachments.length) return;
+    await this.requestSuggestionTarget(tabId, target, false);
+  }
+
+  private async requestSuggestionTarget(tabId: string, target: LocalSuggestionTarget, automatic: boolean): Promise<void> {
+    if (!localSuggestionsEnabled(this.localSuggestionSettings.mode)) return;
+    const state = this.nativeState(tabId);
     this.clearSuggestions(tabId, true);
     const requestId = globalThis.crypto.randomUUID();
     const revision = this.suggestionRevision(state, target);
-    state.suggestion = { requestId, revision, target, loading: true, values: [], error: '' };
-    this.renderSelectedNative();
+    state.suggestion = { requestId, revision, target, loading: true, values: [], error: '', automatic };
+    if (this.selectedId === tabId) this.renderSelectedNative();
     let result;
     try {
       result = await window.limitsWidget.suggestLocalReplies({
@@ -1539,8 +1586,8 @@ export class SessionWorkspace {
     if (state.suggestion.requestId !== requestId || revision !== this.suggestionRevision(state, target)) return;
     state.suggestion.loading = false;
     if (result.ok && result.revision === revision) state.suggestion.values = result.suggestions;
-    else state.suggestion.error = result.message;
-    this.renderSelectedNative();
+    else state.suggestion.error = automatic ? 'Couldn’t prepare replies locally.' : result.message;
+    if (this.selectedId === tabId) this.renderSelectedNative();
   }
 
   private useSuggestion(control: HTMLElement): void {
@@ -1568,12 +1615,51 @@ export class SessionWorkspace {
     if (!state) return;
     const requestId = state.suggestion.requestId;
     if (cancel && state.suggestion.loading && requestId) void window.limitsWidget.cancelLocalSuggestions(requestId);
-    state.suggestion = { requestId: '', revision: '', target: null, loading: false, values: [], error: '' };
+    state.suggestion = { requestId: '', revision: '', target: null, loading: false, values: [], error: '', automatic: false };
   }
 
   private suggestionRevision(state: NativeState, target: LocalSuggestionTarget | null): string {
-    const messages = state.items.filter((item) => item.kind === 'message' && (item.role === 'user' || item.role === 'assistant')).slice(-12);
-    return `${targetKey(target)}|${messages.map((item) => `${item.id}:${item.state}:${item.text.length}:${item.text.slice(-32)}`).join('|')}`;
+    return localSuggestionRevision(state.items, target);
+  }
+
+  private automaticSuggestionTarget(tabId: string): LocalSuggestionTarget | null {
+    const state = this.nativeState(tabId);
+    const pending = [...state.items].reverse().find((item) => ['question', 'approval'].includes(item.kind) && item.state !== 'complete');
+    if (pending?.kind === 'question') {
+      const questions = pending.questions?.length ? pending.questions : fallbackQuestion(pending);
+      const step = Math.min(state.questionSteps.get(pending.id) ?? 0, questions.length - 1);
+      const question = questions[step];
+      const draft = state.questionDrafts.get(pending.id)?.find((answer) => answer.questionId === question?.id)?.text
+        ?? pending.answers?.find((answer) => answer.questionId === question?.id)?.text ?? '';
+      if (question && canSuggestForQuestion(question, draft)) {
+        return { kind: 'question', itemId: pending.id, questionId: question.id, prompt: question.prompt };
+      }
+      return null;
+    }
+    if (pending || state.attachments.length || !canSuggestForComposer(state.items, state.draft)) return null;
+    return { kind: 'composer' };
+  }
+
+  private automaticSuggestionActive(tabId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    const pane = tab ? paneForSession(this.workspaceState.layout, tab.sessionId) : undefined;
+    return this.mounted && !document.hidden && this.selectedId === tabId && pane?.viewMode === 'native';
+  }
+
+  private baselineAutomaticSuggestion(tabId: string): void {
+    const state = this.nativeState(tabId);
+    const target = this.automaticSuggestionTarget(tabId);
+    state.automaticSuggestionKey = target ? this.suggestionRevision(state, target) : '';
+  }
+
+  private maybeStartAutomaticSuggestion(tabId: string, historicalFrame = false): void {
+    const state = this.nativeState(tabId);
+    const target = this.automaticSuggestionTarget(tabId);
+    const currentKey = target ? this.suggestionRevision(state, target) : '';
+    const active = this.localSuggestionSettings.mode === 'automatic' && this.automaticSuggestionActive(tabId);
+    const start = shouldStartAutomaticSuggestion(state.automaticSuggestionKey, currentKey, active, historicalFrame);
+    state.automaticSuggestionKey = currentKey;
+    if (start && target) void this.requestSuggestionTarget(tabId, target, true);
   }
 
   private async loadOlder(): Promise<void> {
@@ -1613,6 +1699,7 @@ export class SessionWorkspace {
       if (question.required && !answer?.choiceIds.length && !answer?.text.trim()) {
         state.notice = `Answer “${question.header || question.prompt}” first`;
         state.questionSteps.set(item.id, item.questions.indexOf(question));
+        this.maybeStartAutomaticSuggestion(this.selectedId);
         this.renderSelectedNative(); return;
       }
     }
@@ -1672,6 +1759,7 @@ export class SessionWorkspace {
     if (step < item.questions.length - 1) {
       state.questionSteps.set(item.id, step + 1);
       state.renderMode = 'preserve';
+      this.maybeStartAutomaticSuggestion(this.selectedId);
       this.renderSelectedNative();
     } else await this.submitQuestion(item);
   }
@@ -1691,6 +1779,7 @@ export class SessionWorkspace {
     if (step >= item.questions.length - 1) { await this.submitQuestion(item); return; }
     state.questionSteps.set(item.id, step + 1);
     state.renderMode = 'preserve';
+    this.maybeStartAutomaticSuggestion(this.selectedId);
     this.renderSelectedNative();
   }
 
@@ -1828,19 +1917,23 @@ export class SessionWorkspace {
   }
 
   private async stageFile(file: File): Promise<void> {
+    const tabId = this.selectedId;
+    this.clearSuggestions(tabId, true);
     try {
-      const attachments = await window.limitsWidget.stageAttachmentBytes(this.selectedId, file.name, file.type, new Uint8Array(await file.arrayBuffer()));
-      this.nativeState(this.selectedId).attachments = attachments;
-    } catch (error) { this.nativeState(this.selectedId).notice = error instanceof Error ? error.message : 'Image could not be staged'; }
-    this.renderSelectedNative();
+      const attachments = await window.limitsWidget.stageAttachmentBytes(tabId, file.name, file.type, new Uint8Array(await file.arrayBuffer()));
+      this.nativeState(tabId).attachments = attachments;
+    } catch (error) { this.nativeState(tabId).notice = error instanceof Error ? error.message : 'Image could not be staged'; }
+    if (this.selectedId === tabId) this.renderSelectedNative();
   }
   private async stageClipboard(): Promise<void> { await this.updateAttachments(() => window.limitsWidget.stageClipboardImage(this.selectedId)); }
   private async chooseAttachments(): Promise<void> { await this.updateAttachments(() => window.limitsWidget.chooseConversationAttachments(this.selectedId)); }
   private async removeAttachment(id: string): Promise<void> { await this.updateAttachments(() => window.limitsWidget.removeConversationAttachment(this.selectedId, id)); }
   private async updateAttachments(action: () => Promise<StagedAttachment[]>): Promise<void> {
-    try { this.nativeState(this.selectedId).attachments = await action(); }
-    catch (error) { this.nativeState(this.selectedId).notice = error instanceof Error ? error.message : 'Attachment action failed'; }
-    this.renderSelectedNative();
+    const tabId = this.selectedId;
+    this.clearSuggestions(tabId, true);
+    try { this.nativeState(tabId).attachments = await action(); }
+    catch (error) { this.nativeState(tabId).notice = error instanceof Error ? error.message : 'Attachment action failed'; }
+    if (this.selectedId === tabId) this.renderSelectedNative();
   }
   private async sendMessage(): Promise<void> {
     if (!this.selectedId) return;
@@ -2156,7 +2249,8 @@ function renderQuestion(
   requestedStep = 0,
   draftAnswers?: ConversationAnswer[],
   submitting = false,
-  suggestion?: NativeState['suggestion']
+  suggestion?: NativeState['suggestion'],
+  suggestionMode: LocalSuggestionSettingsView['mode'] = 'off'
 ): string {
   const complete = item.state === 'complete';
   const questions = item.questions?.length ? item.questions : fallbackQuestion(item);
@@ -2168,7 +2262,7 @@ function renderQuestion(
   const actionLabel = current?.type === 'multi' ? 'Done' : 'Send';
   return `<article class="native-card question-card state-${escapeAttr(item.state)} ${submitting ? 'submitting' : ''}" data-conversation-item="${escapeAttr(item.id)}"><div class="question-scroll"><small>${complete ? 'Answered' : 'Question'}</small><h3>${escapeHtml(item.title || 'Your input is needed')}</h3>${item.text ? markdown(item.text) : ''}
     ${!complete && questions.length > 1 ? `<div class="question-progress"><span>Question ${step + 1} of ${questions.length}</span>${questions.map((_question, index) => `<i class="${index < step ? 'done' : index === step ? 'active' : ''}"></i>`).join('')}</div>` : ''}
-    ${visibleQuestions.map((question) => renderQuestionPart(question, item, answerSource, suggestion)).join('')}
+    ${visibleQuestions.map((question) => renderQuestionPart(question, item, answerSource, suggestion, suggestionMode)).join('')}
     ${complete ? '<div class="question-complete">Answer submitted</div>' : ''}</div>
     ${complete ? '' : `<div class="question-navigation">${step > 0 ? '<button class="quiet-button" data-action="native-question-back" data-workspace-action>Back</button>' : '<span></span>'}${explicitAction ? `<button class="primary-button question-submit" data-action="native-question-next" data-workspace-action ${submitting ? 'disabled' : ''}>${submitting ? 'Sending…' : actionLabel}</button>` : '<small>Tap an answer to continue</small>'}</div>`}</article>`;
 }
@@ -2177,7 +2271,8 @@ function renderQuestionPart(
   question: ConversationQuestion,
   item: ConversationItem,
   answers?: ConversationAnswer[],
-  suggestion?: NativeState['suggestion']
+  suggestion?: NativeState['suggestion'],
+  suggestionMode: LocalSuggestionSettingsView['mode'] = 'off'
 ): string {
   const existing = answers?.find((answer) => answer.questionId === question.id) ?? item.answers?.find((answer) => answer.questionId === question.id);
   const choices = question.type === 'boolean' && !question.options.length
@@ -2189,18 +2284,15 @@ function renderQuestionPart(
   const canSuggest = Boolean(suggestion) && canSuggestForQuestion(question, existing?.text ?? '');
   const activeSuggestion = suggestion?.target?.kind === 'question'
     && suggestion.target.itemId === item.id && suggestion.target.questionId === question.id ? suggestion : undefined;
-  return `<fieldset class="question-part"><legend>${question.header ? `<small>${escapeHtml(question.header)}</small>` : ''}<strong>${escapeHtml(question.prompt)}</strong></legend>${options}${textInput}${activeSuggestion ? renderSuggestionChoices(activeSuggestion) : ''}${canSuggest && !activeSuggestion ? `<button type="button" class="suggest-button" data-action="native-suggest" data-workspace-action data-suggestion-target="question" data-question-id="${escapeAttr(question.id)}">Suggest</button>` : ''}</fieldset>`;
+  const suggestionLabel = suggestionMode === 'automatic' ? 'Regenerate' : 'Suggest';
+  return `<fieldset class="question-part"><legend>${question.header ? `<small>${escapeHtml(question.header)}</small>` : ''}<strong>${escapeHtml(question.prompt)}</strong></legend>${options}${textInput}${activeSuggestion ? renderSuggestionChoices(activeSuggestion) : ''}${canSuggest && !activeSuggestion ? `<button type="button" class="suggest-button" data-action="native-suggest" data-workspace-action data-suggestion-target="question" data-question-id="${escapeAttr(question.id)}">${suggestionLabel}</button>` : ''}</fieldset>`;
 }
 
 function renderSuggestionChoices(suggestion: NativeState['suggestion']): string {
-  if (suggestion.loading) return '<div class="local-suggestions"><small>Thinking locally…</small><button type="button" data-action="native-suggestion-cancel" data-workspace-action>Cancel</button></div>';
-  if (suggestion.error) return `<div class="local-suggestions error"><small>${escapeHtml(suggestion.error)}</small><button type="button" data-action="native-suggestion-cancel" data-workspace-action>Dismiss</button></div>`;
+  if (suggestion.loading) return `<div class="local-suggestions"><small>${suggestion.automatic ? 'Preparing replies locally…' : 'Thinking locally…'}</small><button type="button" data-action="native-suggestion-cancel" data-workspace-action>Cancel</button></div>`;
+  if (suggestion.error) return `<div class="local-suggestions error"><small>${escapeHtml(suggestion.error)}</small><button type="button" data-action="native-suggestion-regenerate" data-workspace-action>Retry</button><button type="button" data-action="native-suggestion-cancel" data-workspace-action>Dismiss</button></div>`;
   if (!suggestion.values.length) return '';
-  return `<div class="local-suggestions"><small>Local suggestions · tap to edit</small>${suggestion.values.map((value, index) => `<button type="button" class="local-suggestion-choice" data-action="native-suggestion-use" data-workspace-action data-suggestion-index="${index}">${escapeHtml(value)}</button>`).join('')}<button type="button" class="quiet-button" data-action="native-suggestion-cancel" data-workspace-action>Dismiss</button></div>`;
-}
-
-function targetKey(target: LocalSuggestionTarget | null): string {
-  return !target ? '' : target.kind === 'composer' ? 'composer' : `question:${target.itemId}:${target.questionId}`;
+  return `<div class="local-suggestions"><small>Local suggestions · tap to edit</small>${suggestion.values.map((value, index) => `<button type="button" class="local-suggestion-choice" data-action="native-suggestion-use" data-workspace-action data-suggestion-index="${index}">${escapeHtml(value)}</button>`).join('')}<button type="button" data-action="native-suggestion-regenerate" data-workspace-action>Regenerate</button><button type="button" class="quiet-button" data-action="native-suggestion-cancel" data-workspace-action>Dismiss</button></div>`;
 }
 
 function fallbackQuestion(item: ConversationItem): ConversationQuestion[] {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0-beta.19 - 2026-07-19
+
+- Added Off, Manual, and Automatic local-reply modes for Native conversations.
+- Automatic mode prepares selectable drafts for each new focused-session reply
+  or free-text question without filling or sending anything by itself.
+- Added historical-snapshot baselines, exactly-once revision guards, cancel-on-
+  input/navigation behavior, Regenerate, and quiet inline Retry handling.
+
 ## 0.11.0-beta.18 - 2026-07-19
 
 - Added one compact current-session model and reasoning-effort control to the

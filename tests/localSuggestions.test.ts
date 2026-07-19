@@ -6,8 +6,11 @@ import {
   canSuggestForQuestion,
   conversationSuggestionContext,
   isLoopbackSuggestionUrl,
+  localSuggestionRevision,
+  localSuggestionsEnabled,
   localSuggestionPrompt,
-  parseLocalSuggestions
+  parseLocalSuggestions,
+  shouldStartAutomaticSuggestion
 } from '../src/shared/local-suggestions';
 import type { ConversationItem, ConversationQuestion } from '../src/shared/conversation';
 
@@ -48,6 +51,20 @@ describe('local reply suggestions', () => {
     expect(canSuggestForComposer([assistant, item({ id: 'user', role: 'user', text: 'Please continue' })], '')).toBe(false);
     expect(canSuggestForQuestion(question, '')).toBe(true);
     expect(canSuggestForQuestion({ ...question, type: 'single' }, '')).toBe(false);
+  });
+
+  it('keeps automatic mode opt-in and starts once for a new active revision', () => {
+    const pending = item({ id: 'assistant', role: 'assistant', state: 'streaming', text: 'Working' });
+    const complete = { ...pending, state: 'complete', text: 'Would you like me to continue?' };
+    const previous = localSuggestionRevision([pending], { kind: 'composer' });
+    const current = localSuggestionRevision([complete], { kind: 'composer' });
+    expect(localSuggestionsEnabled('off')).toBe(false);
+    expect(localSuggestionsEnabled('manual')).toBe(true);
+    expect(localSuggestionsEnabled('automatic')).toBe(true);
+    expect(shouldStartAutomaticSuggestion(previous, current, true, false)).toBe(true);
+    expect(shouldStartAutomaticSuggestion(current, current, true, false)).toBe(false);
+    expect(shouldStartAutomaticSuggestion(previous, current, false, false)).toBe(false);
+    expect(shouldStartAutomaticSuggestion(previous, current, true, true)).toBe(false);
   });
 
   it('ends with a direct-reply task after the quoted conversation', () => {

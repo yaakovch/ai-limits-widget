@@ -30,6 +30,7 @@ button svg { width: 15px; height: 15px; stroke-width: 2; flex: 0 0 auto; }
 .workspace-segmented { display: flex; padding: 3px; background: #0a0f16; border: 1px solid #2a3747; border-radius: 9px; }
 .workspace-segmented button { border: 0; border-radius: 6px; color: #8e9cac; background: transparent; padding: 7px 12px; cursor: pointer; }
 .workspace-segmented button.active { color: #fff; background: #2a3c54; }
+.local-suggestion-mode { width: fit-content; margin: 10px 0 4px; }
 .workspace-identity { min-width: 0; display: flex; flex-direction: column; flex: 1; }
 .workspace-identity strong,.workspace-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-identity strong { font-size: 15px; }.workspace-identity small { color: #8695a7; font-size: 11px; margin-top: 2px; }

@@ -454,10 +454,17 @@ areas.
 
 ## Local Reply Suggestions
 
-- Native conversations expose an opt-in Suggest action only after completed
-  assistant messages and in structured free-text answer fields. It is hidden
-  for a nonempty draft and for approvals or choice questions. Generation is
-  always user-triggered; selecting a result fills the draft and never sends it.
+- Native conversations expose an app-local Off, Manual, or Automatic mode.
+  Manual retains the opt-in Suggest action after completed assistant messages
+  and in structured free-text answer fields. Automatic prepares one to three
+  selectable replies for each newly completed eligible response or active text
+  question in the focused Native pane. Selecting fills the draft and never
+  submits; no mode writes into or sends from the composer by itself.
+- Automatic mode baselines initial snapshots, reconnects, session opening, and
+  focus changes so historical replies never start inference. Stable target and
+  conversation revisions prevent duplicate requests. Typing, attachments,
+  newer context, pane changes, backgrounding, and mode changes cancel stale
+  work; ordinary tool/status frames and history paging do not.
 - Each request contains only the newest 12 visible user/assistant text messages,
   newest-first bounded to 12 KiB UTF-8. Tool activity, terminal output,
   attachments, hidden content, approvals, and choices are excluded. The prompt

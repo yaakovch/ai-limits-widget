@@ -6,6 +6,7 @@ export const LOCAL_SUGGESTION_MAX_RESULTS = 3;
 export const LOCAL_SUGGESTION_MAX_RESULT_CHARS = 500;
 
 export type LocalSuggestionBackend = 'managedLlamaCpp' | 'openAICompatible';
+export type LocalSuggestionMode = 'off' | 'manual' | 'automatic';
 export type LocalSuggestionTarget =
   | { kind: 'composer' }
   | { kind: 'question'; itemId: string; questionId: string; prompt: string };
@@ -32,8 +33,8 @@ export interface LocalSuggestionResult {
 }
 
 export interface LocalSuggestionSettingsView {
-  version: 1;
-  enabled: boolean;
+  version: 2;
+  mode: LocalSuggestionMode;
   backend: LocalSuggestionBackend;
   managed: { executablePath: string; modelPath: string };
   external: { baseUrl: string; modelId: string; tokenConfigured: boolean };
@@ -51,12 +52,28 @@ export interface LocalSuggestionOperationResult {
 
 export function createDefaultLocalSuggestionSettings(): LocalSuggestionSettingsView {
   return {
-    version: 1,
-    enabled: false,
+    version: 2,
+    mode: 'off',
     backend: 'managedLlamaCpp',
     managed: { executablePath: '', modelPath: '' },
     external: { baseUrl: 'http://127.0.0.1:8080', modelId: '', tokenConfigured: false }
   };
+}
+
+export function localSuggestionsEnabled(mode: LocalSuggestionMode): boolean {
+  return mode !== 'off';
+}
+
+export function localSuggestionRevision(items: ConversationItem[], target: LocalSuggestionTarget | null): string {
+  const messages = items.filter((item) => item.kind === 'message' && (item.role === 'user' || item.role === 'assistant')).slice(-12);
+  const targetRevision = !target ? '' : target.kind === 'composer'
+    ? 'composer'
+    : `question:${target.itemId}:${target.questionId}:${target.prompt}`;
+  return `${targetRevision}|${messages.map((item) => `${item.id}:${item.state}:${item.text.length}:${item.text.slice(-32)}`).join('|')}`;
+}
+
+export function shouldStartAutomaticSuggestion(previousKey: string, currentKey: string, active: boolean, historicalFrame: boolean): boolean {
+  return active && !historicalFrame && Boolean(currentKey) && currentKey !== previousKey;
 }
 
 export function conversationSuggestionContext(items: ConversationItem[]): LocalSuggestionMessage[] {

@@ -42,7 +42,7 @@ describe('local suggestion manager', () => {
     const fake = await fakeServer();
     const path = join(mkdtempSync(join(tmpdir(), 'agent-fleet-manager-')), 'settings.json');
     const store = new LocalSuggestionStore(path, { encrypt: (value) => `x:${value}`, decrypt: (value) => value.slice(2) });
-    store.save({ ...store.view(), enabled: true, backend: 'openAICompatible', external: { ...store.view().external, baseUrl: fake.url, bearerToken: 'local-key' } });
+    store.save({ ...store.view(), mode: 'manual', backend: 'openAICompatible', external: { ...store.view().external, baseUrl: fake.url, bearerToken: 'local-key' } });
     const manager = new LocalSuggestionManager(store);
     const result = await manager.suggest({
       requestId: 'request-1', tabId: 'tab-1', revision: 'revision-1', target: { kind: 'composer' },
@@ -59,7 +59,7 @@ describe('local suggestion manager', () => {
   it('rejects non-loopback external servers before making a request', async () => {
     const path = join(mkdtempSync(join(tmpdir(), 'agent-fleet-manager-')), 'settings.json');
     const store = new LocalSuggestionStore(path, { encrypt: String, decrypt: String });
-    store.save({ ...store.view(), enabled: true, backend: 'openAICompatible', external: { ...store.view().external, baseUrl: 'https://example.com' } });
+    store.save({ ...store.view(), mode: 'manual', backend: 'openAICompatible', external: { ...store.view().external, baseUrl: 'https://example.com' } });
     const manager = new LocalSuggestionManager(store);
     const result = await manager.suggest({ requestId: 'r', tabId: 't', revision: 'v', target: { kind: 'composer' }, messages: [] });
     expect(result.ok).toBe(false);

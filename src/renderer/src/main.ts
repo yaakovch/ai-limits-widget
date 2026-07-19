@@ -186,6 +186,11 @@ async function handleAction(action: string, target: HTMLElement): Promise<void> 
     localSuggestionMessage = 'Stored bearer token will be removed when you save.';
     renderConfigView();
   }
+  if (action === 'local-suggestion-mode' && localSuggestionDraft) {
+    const mode = target.dataset.localSuggestionMode;
+    localSuggestionDraft.mode = mode === 'manual' || mode === 'automatic' ? mode : 'off';
+    renderConfigView();
+  }
   if (action === 'local-suggestion-test') await testLocalSuggestions();
   if (action === 'check-updates') {
     updaterState = (await window.limitsWidget.checkForUpdates()) ?? updaterState;
@@ -311,11 +316,14 @@ function renderLocalSuggestionSection(): string {
   const draft = localSuggestionDraft;
   if (!draft) return '';
   const managed = draft.backend === 'managedLlamaCpp';
-  const disabled = draft.enabled ? '' : 'disabled';
+  const disabled = draft.mode !== 'off' ? '' : 'disabled';
   return `
     <section class="settings-section local-suggestion-settings">
-      <div class="section-title-row"><div><h2>Local reply suggestions</h2><p class="section-note">Optional, user-triggered drafts for Native conversations. Conversation text stays on this PC.</p></div><button data-action="local-suggestion-test" ${disabled}>Test backend</button></div>
-      <label class="checkbox-row"><input data-local-setting="enabled" type="checkbox" ${draft.enabled ? 'checked' : ''}>Enable local reply suggestions</label>
+      <div class="section-title-row"><div><h2>Local reply suggestions</h2><p class="section-note">Optional local drafts for Native conversations. Conversation text stays on this PC.</p></div><button data-action="local-suggestion-test" ${disabled}>Test backend</button></div>
+      <div class="workspace-segmented local-suggestion-mode" role="group" aria-label="Local reply suggestion mode">
+        ${(['off', 'manual', 'automatic'] as const).map((mode) => `<button type="button" data-action="local-suggestion-mode" data-local-suggestion-mode="${mode}" class="${draft.mode === mode ? 'active' : ''}" aria-pressed="${draft.mode === mode}">${mode === 'off' ? 'Off' : mode === 'manual' ? 'Manual' : 'Automatic'}</button>`).join('')}
+      </div>
+      <p class="section-note">${draft.mode === 'automatic' ? 'Prepares selectable replies for each new response in the focused Native session. It never fills or sends without your tap.' : draft.mode === 'manual' ? 'Shows Suggest in eligible Native composers and text questions.' : 'No requests run and app-managed model RAM is released.'}</p>
       <div class="settings-grid">
         <label>Backend<select data-local-setting="backend" ${disabled}><option value="managedLlamaCpp" ${managed ? 'selected' : ''}>Managed llama.cpp</option><option value="openAICompatible" ${managed ? '' : 'selected'}>External OpenAI-compatible</option></select></label>
         ${managed ? '<span></span>' : `<label>Model ID<input data-local-setting="external.modelId" value="${escapeAttr(draft.external.modelId)}" ${disabled} placeholder="Auto-detect from /v1/models"></label>`}
@@ -440,14 +448,13 @@ function updateSettingsFromInput(input: HTMLInputElement | HTMLSelectElement): v
   }
   const localSetting = input.dataset.localSetting;
   if (localSetting && localSuggestionDraft) {
-    if (localSetting === 'enabled') localSuggestionDraft.enabled = (input as HTMLInputElement).checked;
-    else if (localSetting === 'backend') localSuggestionDraft.backend = input.value === 'openAICompatible' ? 'openAICompatible' : 'managedLlamaCpp';
+    if (localSetting === 'backend') localSuggestionDraft.backend = input.value === 'openAICompatible' ? 'openAICompatible' : 'managedLlamaCpp';
     else if (localSetting === 'managed.executablePath') localSuggestionDraft.managed.executablePath = input.value;
     else if (localSetting === 'managed.modelPath') localSuggestionDraft.managed.modelPath = input.value;
     else if (localSetting === 'external.baseUrl') localSuggestionDraft.external.baseUrl = input.value;
     else if (localSetting === 'external.modelId') localSuggestionDraft.external.modelId = input.value;
     else if (localSetting === 'external.bearerToken') localSuggestionDraft.external.bearerToken = input.value;
-    if (localSetting === 'enabled' || localSetting === 'backend') renderConfigView();
+    if (localSetting === 'backend') renderConfigView();
   }
   const field = input.dataset.profileField as keyof CodexProfileSettings | undefined;
   const profile = findProfileElement(input);
