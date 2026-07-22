@@ -11,7 +11,10 @@ describe('canonical control v1 requests', () => {
     const requests = frames.filter((value): value is Record<string, unknown> =>
       Boolean(value) && typeof value === 'object' && (value as Record<string, unknown>).type === 'request'
     );
-    requests.forEach(assertAgentFleetControlRequest);
+    requests.forEach((request) => {
+      assertAgentFleetControlRequest(request);
+      assertAgentFleetControlRequest(JSON.parse(JSON.stringify(request)));
+    });
     expect(new Set(requests.map((request) => request.method))).toEqual(new Set(controlMethods()));
     expect(parseAgentFleetControlRequestJson(JSON.stringify(requests[0])).method).toBe('fleet.snapshot');
   });
@@ -22,12 +25,22 @@ describe('canonical control v1 requests', () => {
     }
   );
 
-  it('rejects broken revision pairs and oversized input', () => {
-    const value = JSON.parse(fixture('control-frames-v1.json')).frames.find(
+  it('rejects deterministic field, revision, size, and nesting mutations', () => {
+    const requests = JSON.parse(fixture('control-frames-v1.json')).frames.filter(
+      (frame: Record<string, unknown>) => frame.type === 'request'
+    ) as Array<Record<string, unknown>>;
+    for (const request of requests) {
+      const unknown = structuredClone(request); unknown.unexpected = true;
+      expect(() => assertAgentFleetControlRequest(unknown)).toThrow();
+    }
+    const value = requests.find(
       (frame: Record<string, unknown>) => frame.method === 'directory.list'
-    );
+    ) as any;
     delete value.params.idempotencyKey;
     expect(() => assertAgentFleetControlRequest(value)).toThrow();
     expect(() => parseAgentFleetControlRequestJson(' '.repeat(256 * 1024 + 1))).toThrow();
+    let nested: Record<string, unknown> = {};
+    for (let index = 0; index < 18; index += 1) nested = { nested };
+    expect(() => assertAgentFleetControlRequest(nested)).toThrow('nesting');
   });
 });

@@ -3,6 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { assertAgentFleetControlRequest } from '../shared/control-contract';
+import { assertAgentFleetControlResult } from '../shared/control-result-contract';
 import type { WidgetSettings } from '../shared/settings';
 import {
   FLEET_MAX_FRAME_BYTES,
@@ -317,6 +318,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
     if (value.type !== 'response' || value.ok !== true || value.requestId !== this.pendingRequestId) {
       throw new Error('Invalid or uncorrelated bridge response');
     }
+    assertAgentFleetControlResult(value.result);
     const snapshot = parseBridgeFleetSnapshot(value.result);
     this.pendingRequestId = '';
     const isSettling = snapshot.hosts.some((host) => host.status === 'connecting');
@@ -350,6 +352,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
     exactKeys(value, ['protocolVersion', 'type', 'requestId', 'timestamp', 'ok', 'result'], 'mutation response');
     if (value.type !== 'response' || value.ok !== true) throw new Error('Mutation response is invalid');
     const result = object(value.result, 'mutation result');
+    assertAgentFleetControlResult(result);
     const keys = Object.keys(result).sort();
     const directoryKeys = ['backend', 'entries', 'parentPath', 'path', 'shortcuts', 'truncated'].sort();
     if (sameKeys(keys, directoryKeys)) {

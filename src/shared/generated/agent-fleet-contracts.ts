@@ -53,6 +53,256 @@ export const GENERATED_OBJECT_SHAPES = {
     "optional": [],
     "rejectUnknown": true
   },
+  "control-results-v1:#/$defs/capabilityBase": {
+    "required": [
+      "contractPackageVersion",
+      "controlVersions",
+      "conversationVersions",
+      "events",
+      "methods",
+      "protocolVersion",
+      "workspaceLayoutVersions"
+    ],
+    "optional": [
+      "agentVersion",
+      "bridgeVersion"
+    ],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/catalog": {
+    "required": [
+      "customAllowed",
+      "models"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/directoryEntry": {
+    "required": [
+      "name",
+      "path"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/directoryListing": {
+    "required": [
+      "backend",
+      "entries",
+      "parentPath",
+      "path",
+      "shortcuts",
+      "truncated"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/directoryShortcut": {
+    "required": [
+      "id",
+      "label",
+      "path"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/doctor": {
+    "required": [
+      "checkedAt",
+      "checks",
+      "hostId",
+      "status"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/doctorCheck": {
+    "required": [
+      "detail",
+      "id",
+      "status",
+      "summary"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/effort": {
+    "required": [
+      "id",
+      "label"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/invitation": {
+    "required": [
+      "bootstrapPeer",
+      "bootstrapUser",
+      "expiresAt",
+      "file",
+      "invitationId",
+      "link",
+      "shortCode",
+      "termuxCommand"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/invitationFile": {
+    "required": [
+      "bootstrapPeer",
+      "bootstrapUser",
+      "expiresAt",
+      "pairingVersion",
+      "token"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/model": {
+    "required": [
+      "defaultEffort",
+      "description",
+      "efforts",
+      "id",
+      "isDefault",
+      "label"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/modelControl": {
+    "required": [
+      "catalog",
+      "configRevision",
+      "detail",
+      "effective",
+      "pending",
+      "selected",
+      "sessionId",
+      "status",
+      "tool"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/modelMutation": {
+    "required": [
+      "modelControl",
+      "operationId",
+      "status"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/modelSelection": {
+    "required": [
+      "effortId",
+      "effortLabel",
+      "modelId",
+      "modelLabel"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/mutation": {
+    "required": [
+      "operationId",
+      "snapshot",
+      "status"
+    ],
+    "optional": [
+      "doctor",
+      "invitation",
+      "pairingRequest",
+      "path",
+      "scheduleId",
+      "sessionId"
+    ],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/pairingProposal": {
+    "required": [
+      "fallback",
+      "hostCommand",
+      "id",
+      "linuxUsername",
+      "name",
+      "platform",
+      "projectsRoot",
+      "roles",
+      "schemaVersion",
+      "tailscaleNode",
+      "transport",
+      "wslDistro"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/pairingProposal/properties/fallback": {
+    "required": [
+      "ip",
+      "sshHost"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/pairingRequest": {
+    "required": [
+      "deviceId",
+      "deviceName",
+      "expiresAt",
+      "id",
+      "invitationId",
+      "peer",
+      "peerIp",
+      "platform",
+      "proposal",
+      "publicationRef",
+      "requestedAt",
+      "reviewedAt",
+      "status"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/pendingModel": {
+    "required": [
+      "custom",
+      "effortId",
+      "expiresAt",
+      "modelId",
+      "operationId",
+      "requestedAt"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/repositoryEntry": {
+    "required": [
+      "hidden",
+      "isLink",
+      "kind",
+      "modifiedAt",
+      "name",
+      "relativePath",
+      "size"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/repositoryPage": {
+    "required": [
+      "entries",
+      "nextCursor",
+      "parentPath",
+      "relativePath",
+      "rootName",
+      "truncated"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
   "control-v1:#/$defs/attentionParams": {
     "required": [
       "attentionId",
@@ -389,11 +639,6 @@ export const GENERATED_OBJECT_SHAPES = {
     ],
     "optional": [],
     "rejectUnknown": true
-  },
-  "control-v1:#/$defs/successResponse/properties/result": {
-    "required": [],
-    "optional": [],
-    "rejectUnknown": false
   },
   "conversation-v2:#/$defs/answer": {
     "required": [

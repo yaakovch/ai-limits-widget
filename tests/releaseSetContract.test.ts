@@ -14,7 +14,11 @@ describe('Agent Fleet canonical contract fixtures', () => {
     };
     expect(lock).toMatchObject({ schemaVersion: 1, packageVersion: '1.0.0', algorithm: 'sha256' });
     const fixtures = {
+      'fixtures/invalid/compatibility-content-field-v1.json': 'compatibility-content-field-v1.json',
+      'fixtures/invalid/compatibility-unknown-field-v1.json': 'compatibility-unknown-field-v1.json',
       'fixtures/valid/control-frames-v1.json': 'control-frames-v1.json',
+      'fixtures/valid/control-results-v1.json': 'control-results-v1.json',
+      'fixtures/valid/conversation-frames-v2.json': 'conversation-frames-v2.json',
       'fixtures/valid/conversation-structured-work-v2.json': 'conversation-structured-work-v2.json',
       'fixtures/valid/diagnostics-v1.json': 'diagnostics-v1.json',
       'fixtures/valid/fleet-snapshot-base-v1.json': 'fleet-snapshot-base-v1.json',
@@ -22,6 +26,8 @@ describe('Agent Fleet canonical contract fixtures', () => {
       'fixtures/valid/workspace-layout-v1.json': 'workspace-layout-v1.json',
       'fixtures/invalid/control-content-field-v1.json': 'control-content-field-v1.json',
       'fixtures/invalid/control-unknown-field-v1.json': 'control-unknown-field-v1.json',
+      'fixtures/invalid/control-result-content-field-v1.json': 'control-result-content-field-v1.json',
+      'fixtures/invalid/control-result-unknown-field-v1.json': 'control-result-unknown-field-v1.json',
       'fixtures/invalid/conversation-item-unknown-field-v2.json': 'conversation-item-unknown-field-v2.json',
       'fixtures/invalid/conversation-unknown-field-v2.json': 'conversation-unknown-field-v2.json',
       'fixtures/invalid/diagnostics-content-field-v1.json': 'diagnostics-content-field-v1.json',

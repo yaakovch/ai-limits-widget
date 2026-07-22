@@ -2,6 +2,7 @@ import { GENERATED_CONTROL_REQUEST_SHAPES } from './generated/agent-fleet-contra
 
 export const CONTROL_PROTOCOL_VERSION = 1;
 export const CONTROL_MAX_FRAME_BYTES = 256 * 1024;
+const CONTROL_MAX_NESTING_DEPTH = 16;
 const SHAPES = GENERATED_CONTROL_REQUEST_SHAPES;
 
 const ID = /^[A-Za-z0-9._:-]{1,160}$/u;
@@ -13,6 +14,7 @@ const EFFORT = /^[A-Za-z0-9][A-Za-z0-9._+\\-]{0,63}$/u;
 const FORBIDDEN = new Set(['message', 'prompt', 'output', 'transcript', 'panetitle', 'command']);
 
 export function assertAgentFleetControlRequest(input: unknown): asserts input is Record<string, unknown> {
+  inspect(input, 0);
   if (!record(input) || !exact(input, ['protocolVersion', 'type', 'requestId', 'method', 'timestamp', 'params'])
     || input.protocolVersion !== CONTROL_PROTOCOL_VERSION || input.type !== 'request'
     || !matches(input.requestId, ID) || !instant(input.timestamp) || typeof input.method !== 'string') fail('request envelope is invalid');
@@ -22,7 +24,6 @@ export function assertAgentFleetControlRequest(input: unknown): asserts input is
   if (['directory.list', 'repository.list', 'repository.search'].includes(input.method)
     && (('expectedRevision' in input.params) !== ('idempotencyKey' in input.params))) fail('revision pair is incomplete');
   validateParameters(input.method, input.params);
-  rejectPrivateFields(input);
   if (new TextEncoder().encode(JSON.stringify(input)).byteLength > CONTROL_MAX_FRAME_BYTES) fail('request exceeds its size limit');
 }
 
@@ -69,12 +70,13 @@ function validPreset(input: unknown): boolean {
     && text(input.profileAlias, 64);
 }
 
-function rejectPrivateFields(input: unknown): void {
-  if (Array.isArray(input)) { input.forEach(rejectPrivateFields); return; }
+function inspect(input: unknown, depth: number): void {
+  if (depth > CONTROL_MAX_NESTING_DEPTH) fail('request nesting is too deep');
+  if (Array.isArray(input)) { input.forEach((value) => inspect(value, depth + 1)); return; }
   if (!record(input)) return;
   for (const [key, value] of Object.entries(input)) {
     if (FORBIDDEN.has(key.toLowerCase())) fail(`private field is forbidden: ${key}`);
-    rejectPrivateFields(value);
+    inspect(value, depth + 1);
   }
 }
 

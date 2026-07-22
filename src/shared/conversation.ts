@@ -32,6 +32,15 @@ export interface ConversationFrame {
   hasMore?: boolean; status?: string; error?: { code: string; message: string };
   providerActivity?: ProviderActivity | null;
 }
+export interface ConversationDirectoryFrame {
+  protocolVersion: 2; type: 'directory.snapshot'; timestamp: string; session: string; cwd: string;
+  entries: Array<{ name: string; symlink: boolean }>; truncated: boolean;
+}
+export interface ConversationActionResponse {
+  protocolVersion: 2; type: 'question.response' | 'approval.response'; timestamp: string; session: string;
+  status: 'delivered'; questionId?: string; approvalId?: string; choice?: string;
+}
+export type ConversationProtocolFrame = ConversationFrame | ConversationDirectoryFrame | ConversationActionResponse;
 export interface ConversationEvent { tabId: string; frame: ConversationFrame }
 export interface NativeActionResult { ok: boolean; message: string; frame?: ConversationFrame; pane?: PaneScrollbackSnapshot }
 export interface StagedAttachment { id: string; name: string; mime: string; bytes: number; thumbnail: string }
@@ -72,6 +81,35 @@ export function parseConversationFrame(line: string): ConversationFrame | null {
       || !shape(input.error, ['code', 'message']) || !safe(input.error.code, 64) || !safe(input.error.message, 512, true)) return null;
   } else return null;
   return input as unknown as ConversationFrame;
+}
+
+export function parseConversationProtocolFrame(line: string): ConversationProtocolFrame | null {
+  if (new TextEncoder().encode(line).byteLength < 2 || new TextEncoder().encode(line).byteLength > MAX_CONVERSATION_FRAME_BYTES) return null;
+  let input: unknown;
+  try { input = JSON.parse(line) as unknown; } catch { return null; }
+  if (!record(input) || input.protocolVersion !== 2 || typeof input.type !== 'string') return null;
+  if (input.type.startsWith('conversation.')) return parseConversationFrame(line);
+  if (input.type === 'directory.snapshot') {
+    if (!shape(input, ['protocolVersion', 'type', 'timestamp', 'session', 'cwd', 'entries', 'truncated'])
+      || !timestamp(input.timestamp) || !safe(input.session, 160) || !safe(input.cwd, 4_096)
+      || !boundedArray(input.entries, 200, (entry) => record(entry) && shape(entry, ['name', 'symlink'])
+        && safe(entry.name, 512) && typeof entry.symlink === 'boolean')
+      || typeof input.truncated !== 'boolean') return null;
+    return input as unknown as ConversationDirectoryFrame;
+  }
+  if (input.type === 'question.response') {
+    if (!shape(input, ['protocolVersion', 'type', 'timestamp', 'session', 'questionId', 'status'])
+      || !timestamp(input.timestamp) || !safe(input.session, 160) || !safe(input.questionId, 160)
+      || input.status !== 'delivered') return null;
+    return input as unknown as ConversationActionResponse;
+  }
+  if (input.type === 'approval.response') {
+    if (!shape(input, ['protocolVersion', 'type', 'timestamp', 'session', 'approvalId', 'choice', 'status'])
+      || !timestamp(input.timestamp) || !safe(input.session, 160) || !safe(input.approvalId, 160)
+      || !safe(input.choice, 32) || input.status !== 'delivered') return null;
+    return input as unknown as ConversationActionResponse;
+  }
+  return null;
 }
 
 function validConversationItem(input: unknown): boolean {

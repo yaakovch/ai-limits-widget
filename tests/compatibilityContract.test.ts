@@ -33,6 +33,12 @@ describe('Agent Fleet compatibility and diagnostics contracts', () => {
     expect(Object.values(matrix.components).every(componentSupportsCurrentContracts)).toBe(true);
   });
 
+  it.each(['compatibility-unknown-field-v1.json', 'compatibility-content-field-v1.json'])(
+    'rejects shared invalid compatibility matrix %s', (name) => {
+      expect(() => parseCompatibilityMatrixJson(fixture(name))).toThrow('Invalid Agent Fleet compatibility contract');
+    }
+  );
+
   it('accepts the shared diagnostics fixture and rejects the same invalid fixtures', () => {
     assertContractDiagnosticReport(JSON.parse(fixture('diagnostics-v1.json')));
     for (const name of ['diagnostics-unknown-field-v1.json', 'diagnostics-content-field-v1.json']) {

@@ -1,12 +1,25 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseConversationFrame } from '../src/shared/conversation';
+import { parseConversationFrame, parseConversationProtocolFrame } from '../src/shared/conversation';
 
 const fixture = (name: string): string =>
   readFileSync(join(__dirname, 'fixtures', 'contracts', name), 'utf8');
 
 describe('canonical conversation v2 contract', () => {
+  it('accepts and round-trips every shared frame family', () => {
+    const frames = JSON.parse(fixture('conversation-frames-v2.json')).frames as Array<Record<string, unknown>>;
+    expect(new Set(frames.map((frame) => frame.type))).toEqual(new Set([
+      'conversation.snapshot', 'conversation.event', 'conversation.status', 'conversation.heartbeat',
+      'conversation.error', 'directory.snapshot', 'question.response', 'approval.response'
+    ]));
+    for (const frame of frames) {
+      expect(parseConversationProtocolFrame(JSON.stringify(frame))?.type).toBe(frame.type);
+      const unknown = structuredClone(frame); unknown.unexpected = true;
+      expect(parseConversationProtocolFrame(JSON.stringify(unknown))).toBeNull();
+    }
+  });
+
   it('accepts and round-trips the shared structured-work fixture', () => {
     const parsed = parseConversationFrame(fixture('conversation-structured-work-v2.json'));
     expect(parsed?.type).toBe('conversation.snapshot');
