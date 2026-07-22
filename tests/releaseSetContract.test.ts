@@ -14,10 +14,13 @@ describe('Agent Fleet canonical contract fixtures', () => {
     };
     expect(lock).toMatchObject({ schemaVersion: 1, packageVersion: '1.0.0', algorithm: 'sha256' });
     const fixtures = {
+      'fixtures/valid/control-frames-v1.json': 'control-frames-v1.json',
       'fixtures/valid/conversation-structured-work-v2.json': 'conversation-structured-work-v2.json',
       'fixtures/valid/fleet-snapshot-base-v1.json': 'fleet-snapshot-base-v1.json',
       'fixtures/valid/release-set-v1.json': 'release-set-v1.json',
       'fixtures/valid/workspace-layout-v1.json': 'workspace-layout-v1.json',
+      'fixtures/invalid/control-content-field-v1.json': 'control-content-field-v1.json',
+      'fixtures/invalid/control-unknown-field-v1.json': 'control-unknown-field-v1.json',
       'fixtures/invalid/conversation-item-unknown-field-v2.json': 'conversation-item-unknown-field-v2.json',
       'fixtures/invalid/conversation-unknown-field-v2.json': 'conversation-unknown-field-v2.json',
       'fixtures/invalid/fleet-snapshot-content-field-v1.json': 'fleet-snapshot-content-field-v1.json',

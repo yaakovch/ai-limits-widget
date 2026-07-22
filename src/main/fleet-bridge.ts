@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { assertAgentFleetControlRequest } from '../shared/control-contract';
 import type { WidgetSettings } from '../shared/settings';
 import {
   FLEET_MAX_FRAME_BYTES,
@@ -205,6 +206,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
         timestamp: new Date().toISOString(),
         params: method.startsWith('session.model.') ? params : { ...params, expectedRevision: this.snapshot!.revision }
       };
+      assertAgentFleetControlRequest(request);
       this.child!.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
         if (error) this.rejectPendingMutation('bridge_disconnected', 'Fleet bridge write failed');
       });
@@ -430,6 +432,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
       timestamp: new Date().toISOString(),
       params: {}
     };
+    assertAgentFleetControlRequest(request);
     this.child.stdin.write(`${JSON.stringify(request)}\n`);
   }
 
