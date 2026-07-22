@@ -7,10 +7,26 @@ import {
   createContractDiagnosticReport,
   parseCompatibilityMatrixJson
 } from '../src/shared/compatibility-contract';
+import {
+  GENERATED_CONTROL_REQUEST_SHAPES,
+  GENERATED_OBJECT_SHAPES,
+  GENERATED_PROTOCOL_VERSIONS
+} from '../src/shared/generated/agent-fleet-contracts';
 
 const fixture = (name: string): string => readFileSync(join(__dirname, 'fixtures', 'contracts', name), 'utf8');
 
 describe('Agent Fleet compatibility and diagnostics contracts', () => {
+  it('uses the shared generated structural catalog', () => {
+    const catalog = JSON.parse(fixture('structural-models-v1.json')) as {
+      protocolVersions: Record<string, number>;
+      objectShapes: Array<{ id: string; required: string[]; optional: string[]; rejectUnknown: boolean }>;
+      controlRequestShapes: Record<string, { required: string[]; optional: string[] }>;
+    };
+    expect(GENERATED_PROTOCOL_VERSIONS).toEqual(catalog.protocolVersions);
+    expect(GENERATED_OBJECT_SHAPES).toEqual(Object.fromEntries(catalog.objectShapes.map(({ id, ...shape }) => [id, shape])));
+    expect(GENERATED_CONTROL_REQUEST_SHAPES).toEqual(catalog.controlRequestShapes);
+  });
+
   it('accepts the shared compatibility matrix', () => {
     const matrix = parseCompatibilityMatrixJson(fixture('compatibility-v1.json'));
     expect(matrix.contractPackageVersion).toBe('1.0.0');

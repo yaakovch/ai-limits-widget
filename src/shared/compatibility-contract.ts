@@ -1,9 +1,10 @@
 import type { FleetDoctorResult } from './fleet-protocol';
+import { GENERATED_CONTRACT_PACKAGE_VERSION, GENERATED_PROTOCOL_VERSIONS } from './generated/agent-fleet-contracts';
 
-export const CONTRACT_PACKAGE_VERSION = '1.0.0';
-export const SUPPORTED_CONTROL_VERSIONS = [1] as const;
-export const SUPPORTED_CONVERSATION_VERSIONS = [2] as const;
-export const SUPPORTED_WORKSPACE_LAYOUT_VERSIONS = [1] as const;
+export const CONTRACT_PACKAGE_VERSION = GENERATED_CONTRACT_PACKAGE_VERSION;
+export const SUPPORTED_CONTROL_VERSIONS = [GENERATED_PROTOCOL_VERSIONS.control] as const;
+export const SUPPORTED_CONVERSATION_VERSIONS = [GENERATED_PROTOCOL_VERSIONS.conversation] as const;
+export const SUPPORTED_WORKSPACE_LAYOUT_VERSIONS = [GENERATED_PROTOCOL_VERSIONS['workspace-layout']] as const;
 export const CONTRACT_CAPABILITIES = ['control.v1', 'conversation.v2', 'workspace-layout.v1'] as const;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;

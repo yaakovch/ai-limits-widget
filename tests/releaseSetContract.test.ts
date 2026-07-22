@@ -30,7 +30,8 @@ describe('Agent Fleet canonical contract fixtures', () => {
       'fixtures/invalid/fleet-snapshot-unknown-field-v1.json': 'fleet-snapshot-unknown-field-v1.json',
       'fixtures/invalid/release-set-content-field-v1.json': 'release-set-content-field-v1.json',
       'fixtures/invalid/release-set-unknown-field-v1.json': 'release-set-unknown-field-v1.json',
-      'fixtures/invalid/workspace-layout-unknown-field-v1.json': 'workspace-layout-unknown-field-v1.json'
+      'fixtures/invalid/workspace-layout-unknown-field-v1.json': 'workspace-layout-unknown-field-v1.json',
+      'generated/structural-models-v1.json': 'structural-models-v1.json'
     };
     for (const [canonicalPath, localName] of Object.entries(fixtures)) {
       expect(createHash('sha256').update(fixture(localName)).digest('hex')).toBe(lock.files[canonicalPath]);

@@ -1,36 +1,8 @@
+import { GENERATED_CONTROL_REQUEST_SHAPES } from './generated/agent-fleet-contracts';
+
 export const CONTROL_PROTOCOL_VERSION = 1;
 export const CONTROL_MAX_FRAME_BYTES = 256 * 1024;
-
-interface ParameterShape { required: readonly string[]; optional?: readonly string[] }
-
-const SHAPES: Record<string, ParameterShape> = {
-  'fleet.snapshot': { required: [], optional: ['includeSessionTitles'] },
-  'protocol.capabilities': { required: [] },
-  'session.create': { required: ['hostId', 'project', 'backend', 'tool', 'expectedRevision', 'idempotencyKey'], optional: ['path', 'locationKind'] },
-  'session.kill': { required: ['hostId', 'sessionId', 'expectedRevision', 'idempotencyKey'] },
-  'session.rename': { required: ['hostId', 'sessionId', 'name', 'expectedRevision', 'idempotencyKey'] },
-  'session.name.reset': { required: ['hostId', 'sessionId', 'expectedRevision', 'idempotencyKey'] },
-  'schedule.cancel': { required: ['hostId', 'scheduleId', 'expectedRevision', 'idempotencyKey'] },
-  'schedule.create': { required: ['hostId', 'sessionId', 'deliverAt', 'action', 'expectedRevision', 'idempotencyKey'], optional: ['attentionId'] },
-  'schedule.update': { required: ['hostId', 'scheduleId', 'deliverAt', 'expectedRevision', 'idempotencyKey'] },
-  'attention.dismiss': { required: ['hostId', 'attentionId', 'expectedRevision', 'idempotencyKey'] },
-  'host.doctor': { required: ['hostId', 'expectedRevision', 'idempotencyKey'] },
-  'host.update': { required: ['hostId', 'expectedRevision', 'idempotencyKey'] },
-  'directory.list': { required: ['hostId', 'backend', 'path'], optional: ['expectedRevision', 'idempotencyKey'] },
-  'directory.create': { required: ['hostId', 'backend', 'parentPath', 'name', 'expectedRevision', 'idempotencyKey'] },
-  'repository.list': { required: ['hostId', 'sessionId', 'relativePath', 'includeHidden', 'cursor'], optional: ['expectedRevision', 'idempotencyKey'] },
-  'repository.search': { required: ['hostId', 'sessionId', 'query', 'includeHidden'], optional: ['expectedRevision', 'idempotencyKey'] },
-  'session.model.get': { required: ['hostId', 'sessionId', 'includeCatalog'] },
-  'session.model.set': { required: ['hostId', 'sessionId', 'modelId', 'effortId', 'custom', 'expectedConfigRevision', 'idempotencyKey', 'historyImpactAcknowledged'] },
-  'session.model.cancel': { required: ['hostId', 'sessionId', 'expectedConfigRevision', 'idempotencyKey'] },
-  'preset.upsert': { required: ['preset', 'expectedRevision', 'idempotencyKey'] },
-  'preset.delete': { required: ['presetId', 'expectedRevision', 'idempotencyKey'] },
-  'pairing.invite': { required: ['expectedRevision', 'idempotencyKey'] },
-  'pairing.review': { required: ['pairingRequestId', 'expectedRevision', 'idempotencyKey'] },
-  'pairing.approve': { required: ['pairingRequestId', 'expectedRevision', 'idempotencyKey'] },
-  'pairing.reject': { required: ['pairingRequestId', 'expectedRevision', 'idempotencyKey'] },
-  'pairing.revoke': { required: ['invitationId', 'expectedRevision', 'idempotencyKey'] }
-};
+const SHAPES = GENERATED_CONTROL_REQUEST_SHAPES;
 
 const ID = /^[A-Za-z0-9._:-]{1,160}$/u;
 const SESSION_ID = /^[A-Za-z0-9._:-]{1,320}$/u;
@@ -44,7 +16,7 @@ export function assertAgentFleetControlRequest(input: unknown): asserts input is
   if (!record(input) || !exact(input, ['protocolVersion', 'type', 'requestId', 'method', 'timestamp', 'params'])
     || input.protocolVersion !== CONTROL_PROTOCOL_VERSION || input.type !== 'request'
     || !matches(input.requestId, ID) || !instant(input.timestamp) || typeof input.method !== 'string') fail('request envelope is invalid');
-  const shape = SHAPES[input.method];
+  const shape = SHAPES[input.method as keyof typeof SHAPES];
   if (!shape || !record(input.params) || !exact(input.params, shape.required, shape.optional)) fail('request parameters are invalid');
   if (input.method === 'session.create' && (('path' in input.params) !== ('locationKind' in input.params))) fail('session path metadata is incomplete');
   if (['directory.list', 'repository.list', 'repository.search'].includes(input.method)
