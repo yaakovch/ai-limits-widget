@@ -308,6 +308,9 @@ function createWindow(): void {
       mainWindow?.hide();
     }
   });
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (isCpuSmoke) logger.info('CPU smoke renderer ready');
+  });
   loadRenderer(mainWindow);
   setWidgetInteractionMode('passive');
 }
