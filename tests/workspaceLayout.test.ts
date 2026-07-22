@@ -24,13 +24,22 @@ function ids(): WorkspaceIds {
 
 describe('workspace layout contract', () => {
   it('accepts the shared golden split tree', () => {
-    const fixture = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'workspace_layout_v1.json'), 'utf8')) as unknown;
+    const fixture = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'contracts', 'workspace-layout-v1.json'), 'utf8')) as unknown;
     const layout = normalizeWorkspaceLayout(fixture, ids());
     expect(workspacePanes(layout)).toHaveLength(3);
     expect(workspacePanes(layout).map((pane) => pane.sessionId)).toEqual([
       'gaming-desktop-ubuntu:codex-one', 'work-m-ubuntu:claude-two', null
     ]);
     expect(layout.focusedPaneId).toBe('pane-2');
+  });
+
+  it('rejects the shared unknown-field fixture', () => {
+    const fixture = JSON.parse(readFileSync(
+      join(__dirname, 'fixtures', 'contracts', 'workspace-layout-unknown-field-v1.json'), 'utf8'
+    )) as unknown;
+    const layout = normalizeWorkspaceLayout(fixture, ids());
+    expect(layout.root).toMatchObject({ kind: 'pane', sessionId: null });
+    expect(layout.root.id).not.toBe('pane-primary');
   });
 
   it('splits in both directions, assigns unique sessions, swaps, and closes without killing the final leaf', () => {

@@ -121,7 +121,8 @@ export function normalizeWorkspaceLayout(input: unknown, ids: WorkspaceIds = DEF
   const fallback = emptyWorkspaceLayout(ids);
   if (!input || typeof input !== 'object') return fallback;
   const value = input as Record<string, unknown>;
-  if (value.schemaVersion !== 1 || !Array.isArray(value.sessionMru)) return fallback;
+  if (!hasExactFields(value, ['schemaVersion', 'root', 'focusedPaneId', 'sessionMru'])
+    || value.schemaVersion !== 1 || !Array.isArray(value.sessionMru)) return fallback;
   const seenIds = new Set<string>();
   const seenSessions = new Set<string>();
   let leaves = 0;
@@ -284,6 +285,7 @@ function parseNode(
   if (typeof value.id !== 'string' || !SAFE_ID.test(value.id) || seenIds.has(value.id)) return null;
   seenIds.add(value.id);
   if (value.kind === 'pane') {
+    if (!hasExactFields(value, ['kind', 'id', 'sessionId', 'viewMode'])) return null;
     onPane();
     const sessionId = value.sessionId === null ? null
       : typeof value.sessionId === 'string' && SAFE_ID.test(value.sessionId) && !seenSessions.has(value.sessionId)
@@ -292,11 +294,18 @@ function parseNode(
     if (sessionId) seenSessions.add(sessionId);
     return { kind: 'pane', id: value.id, sessionId, viewMode: value.viewMode as SessionViewMode };
   }
-  if (value.kind !== 'split' || !['row', 'column'].includes(String(value.direction))
+  if (!hasExactFields(value, ['kind', 'id', 'direction', 'ratio', 'first', 'second'])
+    || value.kind !== 'split' || !['row', 'column'].includes(String(value.direction))
     || typeof value.ratio !== 'number' || value.ratio < MIN_SPLIT_RATIO || value.ratio > MAX_SPLIT_RATIO) return null;
   const first = parseNode(value.first, depth + 1, seenIds, seenSessions, onPane);
   const second = parseNode(value.second, depth + 1, seenIds, seenSessions, onPane);
   return first && second ? { kind: 'split', id: value.id, direction: value.direction as WorkspaceSplitDirection, ratio: value.ratio, first, second } : null;
+}
+
+function hasExactFields(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const fields = [...expected].sort();
+  return actual.length === fields.length && actual.every((item, index) => item === fields[index]);
 }
 
 function visit(node: WorkspaceNode, callback: (pane: WorkspacePane) => void): void {
