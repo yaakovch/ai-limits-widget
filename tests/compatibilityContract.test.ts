@@ -1,0 +1,39 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import {
+  assertContractDiagnosticReport,
+  componentSupportsCurrentContracts,
+  createContractDiagnosticReport,
+  parseCompatibilityMatrixJson
+} from '../src/shared/compatibility-contract';
+
+const fixture = (name: string): string => readFileSync(join(__dirname, 'fixtures', 'contracts', name), 'utf8');
+
+describe('Agent Fleet compatibility and diagnostics contracts', () => {
+  it('accepts the shared compatibility matrix', () => {
+    const matrix = parseCompatibilityMatrixJson(fixture('compatibility-v1.json'));
+    expect(matrix.contractPackageVersion).toBe('1.0.0');
+    expect(Object.values(matrix.components).every(componentSupportsCurrentContracts)).toBe(true);
+  });
+
+  it('accepts the shared diagnostics fixture and rejects the same invalid fixtures', () => {
+    assertContractDiagnosticReport(JSON.parse(fixture('diagnostics-v1.json')));
+    for (const name of ['diagnostics-unknown-field-v1.json', 'diagnostics-content-field-v1.json']) {
+      expect(() => assertContractDiagnosticReport(JSON.parse(fixture(name)))).toThrow('Invalid Agent Fleet compatibility contract');
+    }
+  });
+
+  it('reports additive host compatibility without failing legacy doctors', () => {
+    const legacy = createContractDiagnosticReport('windows-app', 'test', [{
+      hostId: 'host', checkedAt: '2026-07-22T12:00:00Z', status: 'healthy', checks: []
+    }]);
+    expect(legacy.checks[0].status).toBe('not-run');
+    const compatible = createContractDiagnosticReport('windows-app', 'test', [{
+      hostId: 'host', checkedAt: '2026-07-22T12:00:00Z', status: 'healthy',
+      checks: [{ id: 'compatibility', status: 'healthy', summary: 'Ready', detail: 'contracts 1.0.0' }]
+    }]);
+    expect(compatible.checks[0]).toMatchObject({ status: 'healthy', errorCode: 'OK' });
+    assertContractDiagnosticReport(compatible);
+  });
+});

@@ -7,6 +7,7 @@ import type { CombinedLimitState } from '../shared/limits';
 import type { WidgetSettings } from '../shared/settings';
 import type { FleetBridgeView, FleetDoctorResult } from '../shared/fleet-protocol';
 import type { TerminalHealth } from '../shared/terminal';
+import { createContractDiagnosticReport } from '../shared/compatibility-contract';
 
 interface DiagnosticsInput {
   app: AppInfo;
@@ -55,6 +56,10 @@ export async function writeDiagnosticsArchive(destination: string, input: Diagno
       2
     )}\n`,
     { name: 'diagnostics.json' }
+  );
+  archive.append(
+    `${JSON.stringify(createContractDiagnosticReport('windows-app', input.app.version, input.doctors), null, 2)}\n`,
+    { name: 'contract-diagnostics.json' }
   );
   archive.append(`${JSON.stringify(input.settings, null, 2)}\n`, { name: 'settings.json' });
   if (existsSync(input.logPath)) archive.file(input.logPath, { name: 'logs/main.log' });

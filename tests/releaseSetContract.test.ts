@@ -16,6 +16,7 @@ describe('Agent Fleet canonical contract fixtures', () => {
     const fixtures = {
       'fixtures/valid/control-frames-v1.json': 'control-frames-v1.json',
       'fixtures/valid/conversation-structured-work-v2.json': 'conversation-structured-work-v2.json',
+      'fixtures/valid/diagnostics-v1.json': 'diagnostics-v1.json',
       'fixtures/valid/fleet-snapshot-base-v1.json': 'fleet-snapshot-base-v1.json',
       'fixtures/valid/release-set-v1.json': 'release-set-v1.json',
       'fixtures/valid/workspace-layout-v1.json': 'workspace-layout-v1.json',
@@ -23,6 +24,8 @@ describe('Agent Fleet canonical contract fixtures', () => {
       'fixtures/invalid/control-unknown-field-v1.json': 'control-unknown-field-v1.json',
       'fixtures/invalid/conversation-item-unknown-field-v2.json': 'conversation-item-unknown-field-v2.json',
       'fixtures/invalid/conversation-unknown-field-v2.json': 'conversation-unknown-field-v2.json',
+      'fixtures/invalid/diagnostics-content-field-v1.json': 'diagnostics-content-field-v1.json',
+      'fixtures/invalid/diagnostics-unknown-field-v1.json': 'diagnostics-unknown-field-v1.json',
       'fixtures/invalid/fleet-snapshot-content-field-v1.json': 'fleet-snapshot-content-field-v1.json',
       'fixtures/invalid/fleet-snapshot-unknown-field-v1.json': 'fleet-snapshot-unknown-field-v1.json',
       'fixtures/invalid/release-set-content-field-v1.json': 'release-set-content-field-v1.json',
