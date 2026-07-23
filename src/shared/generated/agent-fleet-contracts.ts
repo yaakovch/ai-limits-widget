@@ -5,12 +5,13 @@ export interface GeneratedStructuralShape {
   readonly rejectUnknown?: boolean;
 }
 
-export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.1.0";
+export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.2.0";
 export const GENERATED_PROTOCOL_VERSIONS = {
   "control": 1,
   "conversation": 2,
   "workspace-layout": 1,
-  "release-set": 1
+  "release-set": 1,
+  "supervisor": 1
 } as const;
 export const GENERATED_OBJECT_SHAPES = {
   "client-policy-v1:#": {
@@ -1366,6 +1367,81 @@ export const GENERATED_OBJECT_SHAPES = {
       "payload",
       "schemaVersion",
       "signature"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "supervisor-v1:#": {
+    "required": [
+      "contract",
+      "scenarios",
+      "schemaVersion"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "supervisor-v1:#/$defs/action": {
+    "required": [
+      "type"
+    ],
+    "optional": [
+      "channel"
+    ],
+    "rejectUnknown": true
+  },
+  "supervisor-v1:#/$defs/channel": {
+    "required": [
+      "backgroundPolicy",
+      "failureDomain",
+      "id",
+      "persistence"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "supervisor-v1:#/$defs/contract": {
+    "required": [
+      "androidBackgroundControlProcesses",
+      "channels",
+      "foregroundControlProcesses",
+      "heartbeatTimeoutMs",
+      "maxFrameBytes",
+      "maxInFlightControl",
+      "maxQueuedControl",
+      "maxSupervisorRssBytes",
+      "reconnectDelaysMs",
+      "requestDeadlineMs",
+      "version",
+      "windowsBackgroundControlProcesses"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "supervisor-v1:#/$defs/scenario": {
+    "required": [
+      "id",
+      "initial",
+      "steps"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "supervisor-v1:#/$defs/state": {
+    "required": [
+      "connectionGeneration",
+      "controlProcessCount",
+      "foreground",
+      "health",
+      "lastError",
+      "phase"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "supervisor-v1:#/$defs/step": {
+    "required": [
+      "action",
+      "expected"
     ],
     "optional": [],
     "rejectUnknown": true

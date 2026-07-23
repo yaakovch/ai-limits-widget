@@ -235,6 +235,45 @@ describe('fleet bridge supervisor', () => {
     supervisor.stop();
   }, 20_000);
 
+  it('reuses one control process and applies bounded backpressure to concurrent requests', async () => {
+    const directory = temporaryDirectory();
+    const supervisor = new FleetBridgeSupervisor({
+      cachePath: join(directory, 'fleet-cache-v1.json'),
+      launch: {
+        command: process.execPath,
+        args: [writeFakeBridge(directory, fixture, 75)],
+        distro: 'Test Linux'
+      },
+      logger
+    });
+    const live = waitForStatus(supervisor, 'live');
+    supervisor.start();
+    await live;
+    const first = supervisor.mutate('directory.list', {
+      hostId: 'test-host', backend: 'linux', path: '', idempotencyKey: 'directory-first'
+    });
+    await expect(supervisor.mutate('directory.list', {
+      hostId: 'test-host', backend: 'linux', path: '', idempotencyKey: 'directory-second'
+    })).rejects.toMatchObject({ code: 'backpressure' });
+    await first;
+    supervisor.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(supervisor.getSupervisorMetrics()).toMatchObject({
+      processStarts: 1,
+      currentControlProcesses: 1,
+      connectionGeneration: 1
+    });
+    expect(supervisor.getSupervisorState()).toMatchObject({ phase: 'ready', health: 'healthy' });
+    expect(supervisor.getSupervisorMetrics().lastRequestDurationMs).not.toBeNull();
+    expect(supervisor.getSupervisorMetrics().lastSnapshotDurationMs).not.toBeNull();
+    supervisor.setForeground(false);
+    expect(supervisor.getSupervisorState()).toMatchObject({ foreground: false, controlProcessCount: 1 });
+    supervisor.setForeground(true);
+    expect(supervisor.getSupervisorMetrics().processStarts).toBe(1);
+    supervisor.stop();
+    expect(supervisor.getSupervisorState()).toMatchObject({ phase: 'stopped', controlProcessCount: 0 });
+  }, 20_000);
+
   it('loads a previously verified snapshot when the bridge is offline', async () => {
     const directory = temporaryDirectory();
     const cachePath = join(directory, 'fleet-cache-v1.json');

@@ -6,6 +6,14 @@ import { assertAgentFleetControlRequest } from '../shared/control-contract';
 import { assertAgentFleetControlResult } from '../shared/control-result-contract';
 import type { WidgetSettings } from '../shared/settings';
 import {
+  reduceSupervisorState,
+  STOPPED_SUPERVISOR_STATE,
+  SUPERVISOR_HEARTBEAT_TIMEOUT_MS,
+  SUPERVISOR_RECONNECT_DELAYS_MS,
+  type SupervisorAction,
+  type SupervisorState
+} from '../shared/supervisor-contract';
+import {
   FLEET_MAX_FRAME_BYTES,
   FLEET_PROTOCOL_VERSION,
   emptyFleetSnapshot,
@@ -26,9 +34,6 @@ import {
   type FleetMutationResult,
   type FleetDoctorResult
 } from '../shared/fleet-protocol';
-
-const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
-const HEARTBEAT_TIMEOUT_MS = 30_000;
 
 export interface FleetBridgeLaunch {
   command: string;
@@ -62,6 +67,16 @@ interface PendingMutation {
   resolve: (result: FleetMutationResult | FleetDirectoryListing | FleetRepositoryPage | FleetModelControlState | FleetModelControlMutationResult) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  startedAt: number;
+}
+
+export interface FleetSupervisorMetrics {
+  processStarts: number;
+  connectionGeneration: number;
+  currentControlProcesses: 0 | 1;
+  lastReadyLatencyMs: number | null;
+  lastSnapshotDurationMs: number | null;
+  lastRequestDurationMs: number | null;
 }
 
 export class FleetMutationError extends Error {
@@ -88,6 +103,13 @@ export class FleetBridgeSupervisor extends EventEmitter {
   private requestNumber = 0;
   private pendingRequestId = '';
   private pendingMutation: PendingMutation | null = null;
+  private semanticState: SupervisorState = { ...STOPPED_SUPERVISOR_STATE };
+  private processStarts = 0;
+  private connectionStartedAt = 0;
+  private lastReadyLatencyMs: number | null = null;
+  private snapshotRequestStartedAt = 0;
+  private lastSnapshotDurationMs: number | null = null;
+  private lastRequestDurationMs: number | null = null;
 
   constructor(private readonly options: FleetBridgeOptions) {
     super();
@@ -98,6 +120,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
+    this.applySupervisorAction({ type: 'foreground-start' });
     this.status = this.snapshot ? 'cached' : 'starting';
     this.errorCode = '';
     this.emitChanged();
@@ -107,6 +130,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
   }
 
   stop(): void {
+    if (!this.stopped) this.applySupervisorAction({ type: 'background-stop' });
     this.stopped = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
@@ -117,6 +141,26 @@ export class FleetBridgeSupervisor extends EventEmitter {
     safeKill(this.child);
     this.child = null;
     this.rejectPendingMutation('bridge_disconnected', 'Fleet bridge stopped');
+    this.applySupervisorAction({ type: 'shutdown-complete' });
+  }
+
+  setForeground(foreground: boolean): void {
+    this.applySupervisorAction({ type: foreground ? 'foreground-resume' : 'background-retain' });
+  }
+
+  getSupervisorState(): SupervisorState {
+    return { ...this.semanticState };
+  }
+
+  getSupervisorMetrics(): FleetSupervisorMetrics {
+    return {
+      processStarts: this.processStarts,
+      connectionGeneration: this.semanticState.connectionGeneration,
+      currentControlProcesses: this.child && !this.child.killed ? 1 : 0,
+      lastReadyLatencyMs: this.lastReadyLatencyMs,
+      lastSnapshotDurationMs: this.lastSnapshotDurationMs,
+      lastRequestDurationMs: this.lastRequestDurationMs
+    };
   }
 
   refresh(): void {
@@ -185,20 +229,22 @@ export class FleetBridgeSupervisor extends EventEmitter {
       return Promise.reject(new FleetMutationError('host_offline', 'Fleet controller is not live'));
     }
     if (this.pendingRequestId) {
-      return Promise.reject(new FleetMutationError('conflict', 'Another fleet request is still in progress'));
+      this.applySupervisorAction({ type: 'queue-saturated' });
+      return Promise.reject(new FleetMutationError('backpressure', 'The fleet control channel is busy'));
     }
     this.requestNumber += 1;
     const requestId = `desktop-mutation-${this.requestNumber}`;
     this.pendingRequestId = requestId;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
+        this.applySupervisorAction({ type: 'request-timed-out' });
         this.finishPendingMutation();
         reject(new FleetMutationError('timeout', 'Fleet mutation timed out; refresh before retrying'));
         this.errorCode = 'mutation_timeout';
         safeKill(this.child);
       }, this.options.mutationTimeoutMs ?? 15_000);
       timeout.unref();
-      this.pendingMutation = { requestId, resolve, reject, timeout };
+      this.pendingMutation = { requestId, resolve, reject, timeout, startedAt: Date.now() };
       const request = {
         protocolVersion: FLEET_PROTOCOL_VERSION,
         type: 'request',
@@ -258,6 +304,8 @@ export class FleetBridgeSupervisor extends EventEmitter {
       return;
     }
     this.child = child;
+    this.processStarts += 1;
+    this.connectionStartedAt = Date.now();
     child.stdout.on('data', (chunk: Buffer) => this.acceptData(chunk));
     child.stderr.on('data', () => undefined);
     child.once('error', (error) => {
@@ -321,6 +369,10 @@ export class FleetBridgeSupervisor extends EventEmitter {
     assertAgentFleetControlResult(value.result);
     const snapshot = parseBridgeFleetSnapshot(value.result);
     this.pendingRequestId = '';
+    if (this.snapshotRequestStartedAt) {
+      this.lastSnapshotDurationMs = Math.max(0, Date.now() - this.snapshotRequestStartedAt);
+      this.snapshotRequestStartedAt = 0;
+    }
     const isSettling = snapshot.hosts.some((host) => host.status === 'connecting');
     if (isSettling && this.snapshot && this.status === 'cached') {
       this.scheduleSettlePoll();
@@ -331,6 +383,8 @@ export class FleetBridgeSupervisor extends EventEmitter {
     this.status = 'live';
     this.errorCode = '';
     this.retryAttempt = 0;
+    this.applySupervisorAction({ type: 'ready' });
+    this.lastReadyLatencyMs = Math.max(0, Date.now() - this.connectionStartedAt);
     if (!isSettling) this.saveCache(snapshot, this.cacheSavedAt);
     else this.scheduleSettlePoll();
     this.emitChanged();
@@ -427,6 +481,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
     if (!this.child || this.child.killed || !this.child.stdin.writable || this.pendingRequestId) return;
     this.requestNumber += 1;
     this.pendingRequestId = `desktop-${this.requestNumber}`;
+    this.snapshotRequestStartedAt = Date.now();
     const request = {
       protocolVersion: FLEET_PROTOCOL_VERSION,
       type: 'request',
@@ -450,12 +505,14 @@ export class FleetBridgeSupervisor extends EventEmitter {
   }
 
   private checkHeartbeat(): void {
-    if (!this.child || Date.now() - this.lastFrameAt <= HEARTBEAT_TIMEOUT_MS) return;
+    if (!this.child || Date.now() - this.lastFrameAt <= SUPERVISOR_HEARTBEAT_TIMEOUT_MS) return;
+    this.applySupervisorAction({ type: 'heartbeat-expired' });
     this.errorCode = 'heartbeat_timeout';
     safeKill(this.child);
   }
 
   private protocolFailure(code: string): void {
+    this.applySupervisorAction({ type: 'channel-failed', channel: 'control' });
     this.errorCode = code;
     this.status = 'error';
     this.emitChanged();
@@ -466,22 +523,34 @@ export class FleetBridgeSupervisor extends EventEmitter {
     if (!this.child && this.retryTimer) return;
     this.child = null;
     this.pendingRequestId = '';
+    this.snapshotRequestStartedAt = 0;
     this.rejectPendingMutation('bridge_disconnected', 'Fleet bridge disconnected');
     if (this.stopped) return;
+    if (code === 'heartbeat_timeout') this.applySupervisorAction({ type: 'heartbeat-expired' });
+    else if (code === 'mutation_timeout') this.applySupervisorAction({ type: 'request-timed-out' });
+    else if (code === 'protocol_error' || code === 'frame_too_large') {
+      this.applySupervisorAction({ type: 'channel-failed', channel: 'control' });
+    } else this.applySupervisorAction({ type: 'process-exited' });
     this.errorCode = code;
     if (this.status !== 'error') this.status = this.snapshot ? 'cached' : 'offline';
     this.emitChanged();
-    const delay = RECONNECT_DELAYS_MS[Math.min(this.retryAttempt, RECONNECT_DELAYS_MS.length - 1)];
+    const delay = SUPERVISOR_RECONNECT_DELAYS_MS[
+      Math.min(this.retryAttempt, SUPERVISOR_RECONNECT_DELAYS_MS.length - 1)
+    ];
     this.retryAttempt += 1;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
+      this.applySupervisorAction({ type: 'retry-elapsed' });
       this.startChild();
     }, delay);
     this.retryTimer.unref();
   }
 
   private finishPendingMutation(): void {
-    if (this.pendingMutation) clearTimeout(this.pendingMutation.timeout);
+    if (this.pendingMutation) {
+      clearTimeout(this.pendingMutation.timeout);
+      this.lastRequestDurationMs = Math.max(0, Date.now() - this.pendingMutation.startedAt);
+    }
     this.pendingMutation = null;
     this.pendingRequestId = '';
   }
@@ -491,6 +560,10 @@ export class FleetBridgeSupervisor extends EventEmitter {
     if (!pending) return;
     this.finishPendingMutation();
     pending.reject(new FleetMutationError(code, message));
+  }
+
+  private applySupervisorAction(action: SupervisorAction): void {
+    this.semanticState = reduceSupervisorState(this.semanticState, action);
   }
 
   private loadCache(): void {
