@@ -69,6 +69,12 @@ import { cloneSettings, createDefaultSettings, type WidgetSettings } from '../..
 import { FLEET_FIXTURE } from './fleet-fixtures';
 import { SessionWorkspace } from './session-workspace';
 import type { TerminalTabDescriptor } from '../../shared/terminal';
+import {
+  selectedTransportEndpoint,
+  transportEndpointLabel,
+  transportRecovery,
+  transportRecoveryDetail
+} from '../../shared/transport-contract';
 
 type DashboardView = 'overview' | 'workspace' | 'sessions' | 'launcher' | 'schedules' | 'fleet' | 'settings';
 type DashboardScenario = 'live' | 'offline' | 'empty' | 'error';
@@ -1198,19 +1204,24 @@ export class DashboardPrototype {
   }
 
   private renderHostRow(host: FleetPhysicalHost): string {
-    const transport = this.transportHost(host);
-    const detail = transport?.detail ?? `${host.endpointIds.length} endpoint${host.endpointIds.length === 1 ? '' : 's'} · ${this.targetLabels(host)}`;
+    const endpoint = selectedTransportEndpoint(this.snapshot, host);
+    const recovery = transportRecoveryDetail(this.snapshot, host);
+    const detail = recovery ?? `${transportEndpointLabel(endpoint)} · ${this.targetLabels(host)}`;
     return `<div class="host-row"><span class="host-platform">${host.platform === 'termux' ? icon('monitor') : icon('server')}</span><span><strong>${escapeHtml(host.name)}</strong><small>${escapeHtml(detail)}</small></span><span class="host-status status-text-${host.status}"><i class="status-dot status-${host.status}"></i>${capitalize(host.status)}</span></div>`;
   }
 
   private renderHostCard(host: FleetPhysicalHost): string {
     const transport = this.transportHost(host);
-    const endpoints = this.snapshot.endpoints.filter((endpoint) => endpoint.physicalHostId === host.id);
-    const needsVerification = endpoints.some((endpoint) => endpoint.identityState !== 'verified');
+    const endpoint = selectedTransportEndpoint(this.snapshot, host);
     const offline = host.status === 'offline';
-    const baseDetail = transport?.detail ?? `${endpoints.length} registered endpoint${endpoints.length === 1 ? '' : 's'}`;
-    const detail = `${baseDetail}${needsVerification ? ' · Endpoint identity needs verification' : ''}${offline ? ' · Showing last known data' : ''}`;
-    const secondaryAction = host.status === 'attention'
+    const recovery = transportRecovery(endpoint?.errorCode || host.errorCode);
+    const detail = transportRecoveryDetail(this.snapshot, host)
+      ?? `${transportEndpointLabel(endpoint)} · Connected`;
+    const secondaryAction = recovery?.actionKind === 'retry'
+      ? `<button class="primary-button" data-action="dashboard-refresh" title="${escapeAttr(recovery.action)}">${icon('refresh-cw')}${escapeHtml(recovery.action)}</button>`
+      : recovery
+        ? `<button class="primary-button" data-action="dashboard-nav" data-view="settings" title="${escapeAttr(recovery.action)}">${icon('wrench')}${escapeHtml(recovery.action)}</button>`
+        : host.status === 'attention'
       ? `<button class="primary-button" data-action="dashboard-repair-host">${icon('wrench')}Review update</button>`
       : offline
         ? `<button class="primary-button" data-action="dashboard-refresh" title="Retry this host connection">${icon('refresh-cw')}Retry connection</button>`

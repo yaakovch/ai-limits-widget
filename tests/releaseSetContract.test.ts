@@ -12,7 +12,7 @@ describe('Agent Fleet canonical contract fixtures', () => {
     const lock = JSON.parse(fixture('contract-lock-v1.json')) as {
       schemaVersion: number; packageVersion: string; algorithm: string; files: Record<string, string>
     };
-    expect(lock).toMatchObject({ schemaVersion: 1, packageVersion: '1.3.0', algorithm: 'sha256' });
+    expect(lock).toMatchObject({ schemaVersion: 1, packageVersion: '1.4.0', algorithm: 'sha256' });
     const fixtures = {
       'fixtures/invalid/activation-journal-content-field-v1.json': 'activation-journal-content-field-v1.json',
       'fixtures/invalid/activation-journal-unknown-field-v1.json': 'activation-journal-unknown-field-v1.json',
@@ -39,6 +39,9 @@ describe('Agent Fleet canonical contract fixtures', () => {
       'fixtures/invalid/fleet-snapshot-unknown-field-v1.json': 'fleet-snapshot-unknown-field-v1.json',
       'fixtures/invalid/release-set-content-field-v1.json': 'release-set-content-field-v1.json',
       'fixtures/invalid/release-set-unknown-field-v1.json': 'release-set-unknown-field-v1.json',
+      'fixtures/valid/transport-conformance-v1.json': 'transport-conformance-v1.json',
+      'fixtures/invalid/transport-content-field-v1.json': 'transport-content-field-v1.json',
+      'fixtures/invalid/transport-unknown-field-v1.json': 'transport-unknown-field-v1.json',
       'fixtures/invalid/workspace-layout-unknown-field-v1.json': 'workspace-layout-unknown-field-v1.json',
       'generated/structural-models-v1.json': 'structural-models-v1.json'
     };

@@ -5,13 +5,14 @@ export interface GeneratedStructuralShape {
   readonly rejectUnknown?: boolean;
 }
 
-export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.3.0";
+export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.4.0";
 export const GENERATED_PROTOCOL_VERSIONS = {
   "control": 1,
   "conversation": 2,
   "workspace-layout": 1,
   "release-set": 1,
-  "supervisor": 1
+  "supervisor": 1,
+  "transport": 1
 } as const;
 export const GENERATED_OBJECT_SHAPES = {
   "activation-journal-v1:#": {
@@ -1515,6 +1516,62 @@ export const GENERATED_OBJECT_SHAPES = {
     "required": [
       "action",
       "expected"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "transport-v1:#": {
+    "required": [
+      "connectionReuseDefault",
+      "decisions",
+      "defaultEngine",
+      "directNetworkRequiresOptIn",
+      "engines",
+      "failures",
+      "fallbackEngine",
+      "schemaVersion",
+      "transferModeDefault"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "transport-v1:#/$defs/decision": {
+    "required": [
+      "killSwitch",
+      "reasonCode",
+      "state"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "transport-v1:#/$defs/engine": {
+    "required": [
+      "checkMode",
+      "control",
+      "id",
+      "identityBindings",
+      "streamTransfer",
+      "tty"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "transport-v1:#/$defs/failure": {
+    "required": [
+      "code",
+      "layer",
+      "recoveryAction",
+      "retryClass",
+      "severity"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "transport-v1:#/properties/decisions": {
+    "required": [
+      "connectionReuse",
+      "opensshConvergence",
+      "sftp"
     ],
     "optional": [],
     "rejectUnknown": true
