@@ -35,6 +35,7 @@ import {
   type FleetMutationResult,
   type FleetDoctorResult
 } from '../shared/fleet-protocol';
+import type { WslProcessOwnership } from './wsl-process-ownership';
 
 export interface FleetBridgeLaunch {
   command: string;
@@ -54,6 +55,7 @@ export interface FleetBridgeOptions {
   logger: FleetBridgeLogger;
   spawnProcess?: typeof spawn;
   mutationTimeoutMs?: number;
+  processOwnership?: WslProcessOwnership;
 }
 
 interface CacheEnvelope {
@@ -139,7 +141,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
     this.retryTimer = null;
     this.heartbeatTimer = null;
     this.settleTimer = null;
-    safeKill(this.child);
+    if (!this.options.processOwnership?.release(this.child, 'app_shutdown')) safeKill(this.child);
     this.child = null;
     this.rejectPendingMutation('bridge_disconnected', 'Fleet bridge stopped');
     this.applySupervisorAction({ type: 'shutdown-complete' });
@@ -242,7 +244,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
         this.finishPendingMutation();
         reject(new FleetMutationError('timeout', 'Fleet mutation timed out; refresh before retrying'));
         this.errorCode = 'mutation_timeout';
-        safeKill(this.child);
+        if (!this.options.processOwnership?.release(this.child, 'timeout')) safeKill(this.child);
       }, this.options.mutationTimeoutMs ?? 15_000);
       timeout.unref();
       this.pendingMutation = { requestId, resolve, reject, timeout, startedAt: Date.now() };
@@ -305,6 +307,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
       return;
     }
     this.child = child;
+    this.options.processOwnership?.own('control:bridge', child);
     this.processStarts += 1;
     this.connectionStartedAt = Date.now();
     child.stdout.on('data', (chunk: Buffer) => this.acceptData(chunk));
@@ -509,7 +512,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
     if (!this.child || Date.now() - this.lastFrameAt <= SUPERVISOR_HEARTBEAT_TIMEOUT_MS) return;
     this.applySupervisorAction({ type: 'heartbeat-expired' });
     this.errorCode = 'heartbeat_timeout';
-    safeKill(this.child);
+    if (!this.options.processOwnership?.release(this.child, 'timeout')) safeKill(this.child);
   }
 
   private protocolFailure(code: string): void {
@@ -517,7 +520,7 @@ export class FleetBridgeSupervisor extends EventEmitter {
     this.errorCode = code;
     this.status = 'error';
     this.emitChanged();
-    safeKill(this.child);
+    if (!this.options.processOwnership?.release(this.child, 'protocol_failure')) safeKill(this.child);
   }
 
   private disconnect(code: string): void {

@@ -4,6 +4,7 @@ import { win32 } from 'node:path';
 import type { FleetDownloadJob } from '../shared/app';
 import { resolveWslExecutable } from './fleet-terminal';
 import { activatedRuntimeCommand } from '../shared/runtime';
+import type { WslProcessOwnership } from './wsl-process-ownership';
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const SAFE_ID = /^[A-Za-z0-9._:-]{1,320}$/u;
@@ -25,6 +26,7 @@ export interface FleetDownloadManagerOptions {
   onComplete?: (job: FleetDownloadJob) => void;
   spawnProcess?: typeof spawn;
   wslExecutable?: () => string;
+  processOwnership?: WslProcessOwnership;
 }
 
 interface ActiveDownload {
@@ -75,6 +77,7 @@ export class FleetDownloadManager {
         stdio: ['ignore', 'pipe', 'pipe']
       }) as unknown as ChildProcessWithoutNullStreams;
       active.child = child;
+      this.options.processOwnership?.own(`download:${id}`, child);
       child.stdout.on('data', (chunk: Buffer) => this.acceptStdout(active, chunk));
       child.stderr.on('data', (chunk: Buffer) => this.acceptStderr(active, chunk));
       child.once('error', (error) => this.finishFailure(active, readableError(error)));
@@ -97,7 +100,9 @@ export class FleetDownloadManager {
     active.cancelled = true;
     active.job = { ...active.job, state: 'cancelled', message: 'Download cancelled' };
     this.emit(active);
-    active.child?.kill('SIGTERM');
+    if (active.child && !this.options.processOwnership?.release(active.child, 'cancel')) {
+      active.child.kill('SIGTERM');
+    }
     return { ...active.job };
   }
 

@@ -65,10 +65,10 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.conversationHistory, tabId),
   pageConversation: (tabId: string, cursor: string): Promise<NativeActionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.conversationPage, tabId, cursor),
-  approveConversation: (tabId: string, approval: string, choice: string, revision: string): Promise<NativeActionResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.conversationApprove, tabId, approval, choice, revision),
-  answerConversation: (tabId: string, question: string, revision: string, answers: ConversationAnswer[]): Promise<NativeActionResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.conversationAnswer, tabId, question, revision, answers),
+  approveConversation: (tabId: string, approval: string, choice: string, revision: string, eventPosition: number): Promise<NativeActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.conversationApprove, tabId, approval, choice, revision, eventPosition),
+  answerConversation: (tabId: string, question: string, revision: string, eventPosition: number, answers: ConversationAnswer[]): Promise<NativeActionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.conversationAnswer, tabId, question, revision, eventPosition, answers),
   stageAttachmentBytes: (tabId: string, name: string, mime: string, data: Uint8Array): Promise<StagedAttachment[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.conversationStageBytes, tabId, name, mime, data),
   stageClipboardImage: (tabId: string): Promise<StagedAttachment[]> =>

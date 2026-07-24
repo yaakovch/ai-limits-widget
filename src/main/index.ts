@@ -67,6 +67,7 @@ import type { LocalSuggestionSettingsInput } from '../shared/local-suggestions';
 import { LocalSuggestionStore } from './local-suggestion-store';
 import { LocalSuggestionManager } from './local-suggestion-manager';
 import { WslRuntimeManager } from './wsl-runtime-manager';
+import { WslProcessOwnership } from './wsl-process-ownership';
 
 const APP_ID = 'com.yaakovch.ailimitswidget';
 const PRODUCT_NAME = 'Agent Fleet';
@@ -104,6 +105,7 @@ const stateManager = new LimitStateManager({
   settings: appSettings,
   settingsDiagnostic: settingsLoadResult.recovered ? settingsLoadResult.message : undefined
 });
+const wslProcessOwnership = new WslProcessOwnership();
 const wslRuntimeManager = new WslRuntimeManager({
   resourcesRoot: join(getResourceRoot(), 'resources'),
   distro: () => fleetBridgeLaunchFromSettings(appSettings).distro
@@ -124,7 +126,8 @@ const terminalManager = new TerminalManager({
   onData: (event) => broadcast(IPC_CHANNELS.terminalData, event),
   onStatus: (event) => broadcast(IPC_CHANNELS.terminalStatus, event),
   onClosed: (event) => broadcast(IPC_CHANNELS.terminalClosed, event),
-  onWorkspace: (state) => broadcast(IPC_CHANNELS.terminalWorkspaceUpdated, state)
+  onWorkspace: (state) => broadcast(IPC_CHANNELS.terminalWorkspaceUpdated, state),
+  processOwnership: wslProcessOwnership
 });
 const conversationManager = new ConversationManager({
   tempPath: join(app.getPath('temp'), 'agent-fleet-attachments'),
@@ -132,7 +135,8 @@ const conversationManager = new ConversationManager({
   getDistro: () => fleetBridgeLaunchFromSettings(appSettings).distro,
   resolveTab: (tabId) => terminalManager.list().find((tab) => tab.id === tabId),
   sendTerminalInput: (tabId, data) => terminalManager.input(tabId, data),
-  onEvent: (event) => broadcast(IPC_CHANNELS.conversationEvent, event)
+  onEvent: (event) => broadcast(IPC_CHANNELS.conversationEvent, event),
+  processOwnership: wslProcessOwnership
 });
 const localSuggestionStore = new LocalSuggestionStore(
   join(dataDirectory, 'local-suggestions-v1.json'),
@@ -158,7 +162,8 @@ const fleetDownloadManager = new FleetDownloadManager({
   },
   onComplete: (job) => {
     if (Notification.isSupported()) showFleetNotification('Download complete', job.name);
-  }
+  },
+  processOwnership: wslProcessOwnership
 });
 
 let mainWindow: BrowserWindow | null = null;
@@ -181,7 +186,8 @@ function createFleetBridge(): FleetBridgeSupervisor {
   const bridge = new FleetBridgeSupervisor({
     cachePath: join(dataDirectory, 'fleet-cache-v1.json'),
     launch: fleetBridgeLaunchFromSettings(appSettings),
-    logger
+    logger,
+    processOwnership: wslProcessOwnership
   });
   if (!appSettings.automaticSessionTitles) bridge.purgeSessionTitles();
   bridge.on('changed', () => {
@@ -753,13 +759,14 @@ handle(IPC_CHANNELS.conversationHistory, (_event, tabId) =>
 handle(IPC_CHANNELS.conversationPage, (_event, tabId, cursor) =>
   typeof tabId === 'string' && typeof cursor === 'string'
     ? conversationManager.page(tabId, cursor) : { ok: false, message: 'History request is invalid' });
-handle(IPC_CHANNELS.conversationApprove, (_event, tabId, approval, choice, revision) =>
-  [tabId, approval, choice, revision].every((value) => typeof value === 'string')
-    ? conversationManager.approve(tabId, approval, choice, revision)
+handle(IPC_CHANNELS.conversationApprove, (_event, tabId, approval, choice, revision, eventPosition) =>
+  [tabId, approval, choice, revision].every((value) => typeof value === 'string') && typeof eventPosition === 'number'
+    ? conversationManager.approve(tabId, approval, choice, revision, eventPosition)
     : { ok: false, message: 'Approval is invalid' });
-handle(IPC_CHANNELS.conversationAnswer, (_event, tabId, question, revision, answers) =>
-  typeof tabId === 'string' && typeof question === 'string' && typeof revision === 'string' && Array.isArray(answers)
-    ? conversationManager.answer(tabId, question, revision, answers)
+handle(IPC_CHANNELS.conversationAnswer, (_event, tabId, question, revision, eventPosition, answers) =>
+  typeof tabId === 'string' && typeof question === 'string' && typeof revision === 'string'
+    && typeof eventPosition === 'number' && Array.isArray(answers)
+    ? conversationManager.answer(tabId, question, revision, eventPosition, answers)
     : { ok: false, message: 'Answer is invalid' });
 handle(IPC_CHANNELS.conversationStageBytes, (_event, tabId, name, mime, data) => {
   const bytes = data as unknown;
@@ -1619,6 +1626,7 @@ app.on('before-quit', () => {
   terminalManager.dispose();
   conversationManager.dispose();
   localSuggestionManager.dispose();
+  wslProcessOwnership.releaseAll('app_shutdown');
 });
 
 app.on('window-all-closed', () => {

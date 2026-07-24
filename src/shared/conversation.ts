@@ -8,6 +8,17 @@ export interface ConversationQuestion {
 }
 export interface ConversationAnswer { questionId: string; choiceIds: string[]; text: string }
 export interface ProviderActivity { label: string; elapsedSeconds: number; observedAt: string }
+export type ProviderConfidence = 'verified' | 'reconstructed' | 'stale' | 'unsupported';
+export interface ProviderState {
+  confidence: ProviderConfidence;
+  reasonCode: string;
+  observedRevision: string;
+  eventPosition: number;
+  parser: { id: string; version: string };
+  actions: { id: string; version: string };
+  mutationsAllowed: boolean;
+  fallback: 'none' | 'read_only_native' | 'terminal_only';
+}
 export interface ConversationTask {
   id: string; title: string; activeTitle: string; detail: string;
   state: 'pending' | 'in_progress' | 'completed';
@@ -30,7 +41,7 @@ export interface ConversationFrame {
   session?: string; adapter?: string; mode?: string; interactionMode?: 'plan' | 'default' | 'unknown';
   revision?: string; items?: ConversationItem[]; item?: ConversationItem; nextCursor?: string | null;
   hasMore?: boolean; status?: string; error?: { code: string; message: string };
-  providerActivity?: ProviderActivity | null;
+  providerActivity?: ProviderActivity | null; providerState?: ProviderState;
 }
 export interface ConversationDirectoryFrame {
   protocolVersion: 2; type: 'directory.snapshot'; timestamp: string; session: string; cwd: string;
@@ -62,20 +73,21 @@ export function parseConversationFrame(line: string): ConversationFrame | null {
   if (type === 'conversation.snapshot') {
     if (!shape(input,
       ['protocolVersion', 'type', 'session', 'adapter', 'mode', 'interactionMode', 'revision', 'items', 'nextCursor', 'hasMore'],
-      ['timestamp', 'providerActivity'])
+      ['timestamp', 'providerActivity', 'providerState'])
       || !safe(input.session, 160) || !safe(input.adapter, 32) || !safe(input.mode, 32)
       || !member(input.interactionMode, ['plan', 'default', 'unknown']) || !safe(input.revision, 160)
       || !boundedArray(input.items, 200, validConversationItem)
       || !(input.nextCursor === null || safe(input.nextCursor, 2048)) || typeof input.hasMore !== 'boolean'
-      || !optionalTimestamp(input) || !optionalProviderActivity(input)) return null;
+      || !optionalTimestamp(input) || !optionalProviderActivity(input) || !optionalProviderState(input)) return null;
   } else if (type === 'conversation.event') {
-    if (!shape(input, ['protocolVersion', 'type', 'session', 'adapter', 'item'], ['timestamp'])
+    if (!shape(input, ['protocolVersion', 'type', 'session', 'adapter', 'item'], ['timestamp', 'providerState'])
       || !optionalTimestamp(input) || !safe(input.session, 160) || !safe(input.adapter, 32)
-      || !validConversationItem(input.item)) return null;
+      || !validConversationItem(input.item) || !optionalProviderState(input)) return null;
   } else if (type === 'conversation.status' || type === 'conversation.heartbeat') {
-    if (!shape(input, ['protocolVersion', 'type', 'session', 'adapter', 'status', 'interactionMode'], ['timestamp', 'providerActivity'])
+    if (!shape(input, ['protocolVersion', 'type', 'session', 'adapter', 'status', 'interactionMode'], ['timestamp', 'providerActivity', 'providerState'])
       || !optionalTimestamp(input) || !safe(input.session, 160) || !safe(input.adapter, 32) || !safe(input.status, 64)
-      || !member(input.interactionMode, ['plan', 'default', 'unknown']) || !optionalProviderActivity(input)) return null;
+      || !member(input.interactionMode, ['plan', 'default', 'unknown']) || !optionalProviderActivity(input)
+      || !optionalProviderState(input)) return null;
   } else if (type === 'conversation.error') {
     if (!shape(input, ['protocolVersion', 'type', 'error'], ['timestamp']) || !optionalTimestamp(input) || !record(input.error)
       || !shape(input.error, ['code', 'message']) || !safe(input.error.code, 64) || !safe(input.error.message, 512, true)) return null;
@@ -175,6 +187,38 @@ function optionalProviderActivity(input: Record<string, unknown>): boolean {
   return record(value) && shape(value, ['label', 'elapsedSeconds', 'observedAt']) && safe(value.label, 80)
     && Number.isInteger(value.elapsedSeconds) && (value.elapsedSeconds as number) >= 0
     && (value.elapsedSeconds as number) <= 604_800 && timestamp(value.observedAt);
+}
+
+function optionalProviderState(input: Record<string, unknown>): boolean {
+  if (!('providerState' in input)) return true;
+  const value = input.providerState;
+  if (!record(value) || !shape(value, [
+    'confidence', 'reasonCode', 'observedRevision', 'eventPosition', 'parser', 'actions',
+    'mutationsAllowed', 'fallback'
+  ]) || !member(value.confidence, ['verified', 'reconstructed', 'stale', 'unsupported'])
+    || typeof value.reasonCode !== 'string' || !/^[A-Z][A-Z0-9_]{0,63}$/u.test(value.reasonCode)
+    || !safe(value.observedRevision, 160) || !Number.isSafeInteger(value.eventPosition)
+    || (value.eventPosition as number) < 0 || typeof value.mutationsAllowed !== 'boolean'
+    || !member(value.fallback, ['none', 'read_only_native', 'terminal_only'])
+    || !providerComponent(value.parser) || !providerComponent(value.actions)) return false;
+  const verified = value.confidence === 'verified';
+  return value.mutationsAllowed === verified && (verified ? value.fallback === 'none' : value.fallback !== 'none');
+}
+
+function providerComponent(input: unknown): boolean {
+  return record(input) && shape(input, ['id', 'version'])
+    && typeof input.id === 'string' && /^[a-z][a-z0-9._-]{0,63}$/u.test(input.id)
+    && typeof input.version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+$/u.test(input.version);
+}
+
+export function unavailableProviderState(): ProviderState {
+  return {
+    confidence: 'unsupported', reasonCode: 'PROVIDER_STATE_UNAVAILABLE',
+    observedRevision: '', eventPosition: 0,
+    parser: { id: 'fallback-parser', version: '1.0.0' },
+    actions: { id: 'fallback-actions', version: '1.0.0' },
+    mutationsAllowed: false, fallback: 'terminal_only'
+  };
 }
 
 function optionalTimestamp(input: Record<string, unknown>): boolean {

@@ -6,6 +6,7 @@ import { nativeImage } from 'electron';
 import { parseConversationFrame, type ConversationAnswer, type ConversationEvent, type ConversationFrame, type NativeActionResult, type StagedAttachment } from '../shared/conversation';
 import type { PaneScrollbackSnapshot, TerminalTabDescriptor } from '../shared/terminal';
 import { activatedRuntimeCommand } from '../shared/runtime';
+import type { WslProcessOwnership } from './wsl-process-ownership';
 
 const MAX_FRAME = 256 * 1024;
 const MAX_ACTION_OUTPUT = 512 * 1024;
@@ -23,6 +24,7 @@ export interface ConversationManagerOptions {
   onEvent(event: ConversationEvent): void;
   logger: { info(...values: unknown[]): void; warn(...values: unknown[]): void };
   spawnProcess?: typeof spawn;
+  processOwnership?: WslProcessOwnership;
 }
 
 export class ConversationManager {
@@ -44,6 +46,7 @@ export class ConversationManager {
     });
     const state: StreamState = { process, buffer: '', generation };
     this.streams.set(tabId, state);
+    this.options.processOwnership?.own(`conversation:${tabId}`, process);
     process.stdout?.setEncoding('utf8');
     process.stdout?.on('data', (data: string) => this.consume(tabId, state, data));
     process.stderr?.resume();
@@ -69,7 +72,7 @@ export class ConversationManager {
     this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
     const stream = this.streams.get(tabId);
     this.streams.delete(tabId);
-    stream?.process.kill();
+    if (stream && !this.options.processOwnership?.release(stream.process, 'detach')) stream.process.kill();
   }
 
   close(tabId: string): void {
@@ -100,17 +103,22 @@ export class ConversationManager {
     return { ok: false, message: result.stderr.trim().slice(0, 500) || 'Pane scrollback is unavailable' };
   }
 
-  async approve(tabId: string, approval: string, choice: string, revision: string): Promise<NativeActionResult> {
-    if (![approval, choice, revision].every((value) => safeArg(value, 320))) return { ok: false, message: 'Approval changed; refresh it' };
+  async approve(tabId: string, approval: string, choice: string, revision: string, eventPosition: number): Promise<NativeActionResult> {
+    if (![approval, choice, revision].every((value) => safeArg(value, 320)) || !Number.isSafeInteger(eventPosition) || eventPosition < 0) {
+      return { ok: false, message: 'Approval changed; refresh it' };
+    }
     return this.action(tabId, 'approve', ['--approval', approval, '--choice', choice, '--revision', revision,
+      '--event-position', String(eventPosition),
       '--idempotency-key', randomUUID()], 15_000);
   }
 
-  async answer(tabId: string, question: string, revision: string, answers: ConversationAnswer[]): Promise<NativeActionResult> {
-    if (!safeArg(question, 320) || !safeArg(revision, 320) || !Array.isArray(answers)) return { ok: false, message: 'Question changed; refresh it' };
+  async answer(tabId: string, question: string, revision: string, eventPosition: number, answers: ConversationAnswer[]): Promise<NativeActionResult> {
+    if (!safeArg(question, 320) || !safeArg(revision, 320) || !Number.isSafeInteger(eventPosition)
+      || eventPosition < 0 || !Array.isArray(answers)) return { ok: false, message: 'Question changed; refresh it' };
     const payload = Buffer.from(JSON.stringify({ answers }), 'utf8');
     if (payload.length > 32 * 1024) return { ok: false, message: 'Answers are too long' };
     return this.action(tabId, 'answer', ['--question', question, '--revision', revision,
+      '--event-position', String(eventPosition),
       '--answers-b64', payload.toString('base64url'), '--idempotency-key', randomUUID()], 35_000);
   }
 
@@ -157,7 +165,7 @@ export class ConversationManager {
     if (this.streams.get(tabId) !== state) return;
     state.buffer += data;
     if (state.buffer.length > MAX_FRAME * 2) {
-      state.process.kill();
+      if (!this.options.processOwnership?.release(state.process, 'protocol_failure')) state.process.kill();
       this.localError(tabId, 'oversized_frame', 'The host sent an oversized conversation frame.');
       return;
     }

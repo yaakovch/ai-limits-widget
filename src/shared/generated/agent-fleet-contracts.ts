@@ -5,7 +5,7 @@ export interface GeneratedStructuralShape {
   readonly rejectUnknown?: boolean;
 }
 
-export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.7.0";
+export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.8.0";
 export const GENERATED_PROTOCOL_VERSIONS = {
   "control": 1,
   "conversation": 2,
@@ -14,7 +14,8 @@ export const GENERATED_PROTOCOL_VERSIONS = {
   "supervisor": 1,
   "transport": 1,
   "host-runtime": 1,
-  "diagnostics": 2
+  "diagnostics": 2,
+  "provider-confidence": 1
 } as const;
 export const GENERATED_OBJECT_SHAPES = {
   "activation-journal-v1:#": {
@@ -781,7 +782,9 @@ export const GENERATED_OBJECT_SHAPES = {
       "timestamp",
       "type"
     ],
-    "optional": [],
+    "optional": [
+      "providerState"
+    ],
     "rejectUnknown": true
   },
   "conversation-v2:#/$defs/heartbeat": {
@@ -795,7 +798,8 @@ export const GENERATED_OBJECT_SHAPES = {
       "type"
     ],
     "optional": [
-      "providerActivity"
+      "providerActivity",
+      "providerState"
     ],
     "rejectUnknown": true
   },
@@ -862,6 +866,28 @@ export const GENERATED_OBJECT_SHAPES = {
     "optional": [],
     "rejectUnknown": true
   },
+  "conversation-v2:#/$defs/providerComponent": {
+    "required": [
+      "id",
+      "version"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "conversation-v2:#/$defs/providerState": {
+    "required": [
+      "actions",
+      "confidence",
+      "eventPosition",
+      "fallback",
+      "mutationsAllowed",
+      "observedRevision",
+      "parser",
+      "reasonCode"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
   "conversation-v2:#/$defs/question": {
     "required": [
       "allowOther",
@@ -911,6 +937,7 @@ export const GENERATED_OBJECT_SHAPES = {
     ],
     "optional": [
       "providerActivity",
+      "providerState",
       "timestamp"
     ],
     "rejectUnknown": true
@@ -926,7 +953,8 @@ export const GENERATED_OBJECT_SHAPES = {
       "type"
     ],
     "optional": [
-      "providerActivity"
+      "providerActivity",
+      "providerState"
     ],
     "rejectUnknown": true
   },
@@ -1493,6 +1521,37 @@ export const GENERATED_OBJECT_SHAPES = {
     "optional": [],
     "rejectUnknown": true
   },
+  "provider-confidence-v1:#": {
+    "required": [
+      "adapters",
+      "cases",
+      "schemaVersion"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "provider-confidence-v1:#/properties/adapters/items": {
+    "required": [
+      "actionVersion",
+      "id",
+      "parserVersion"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "provider-confidence-v1:#/properties/cases/items": {
+    "required": [
+      "adapter",
+      "condition",
+      "confidence",
+      "fallback",
+      "id",
+      "mutationsAllowed",
+      "reasonCode"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
   "release-set-v1:#": {
     "required": [
       "artifacts",
@@ -1501,6 +1560,7 @@ export const GENERATED_OBJECT_SHAPES = {
       "expiresAt",
       "issuedAt",
       "protocols",
+      "providerAdapterVersions",
       "releaseSetSequence",
       "rollbackFloor",
       "schemaVersion",
@@ -1562,6 +1622,22 @@ export const GENERATED_OBJECT_SHAPES = {
     "optional": [],
     "rejectUnknown": true
   },
+  "release-set-v1:#/$defs/providerAdapterVersion": {
+    "required": [
+      "actions",
+      "parser"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "release-set-v1:#/$defs/providerUnitVersion": {
+    "required": [
+      "sequence",
+      "version"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
   "release-set-v1:#/$defs/range": {
     "required": [
       "maximum",
@@ -1595,6 +1671,16 @@ export const GENERATED_OBJECT_SHAPES = {
       "control",
       "conversation",
       "workspaceLayout"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "release-set-v1:#/properties/providerAdapterVersions": {
+    "required": [
+      "claude",
+      "codex",
+      "copilot",
+      "shell"
     ],
     "optional": [],
     "rejectUnknown": true

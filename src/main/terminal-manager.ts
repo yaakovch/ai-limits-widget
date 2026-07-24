@@ -40,6 +40,7 @@ import {
   type WorkspaceRailState
 } from '../shared/workspace-layout';
 import { buildFleetWslAttachCommand, resolveWslExecutable, WindowsExecutableError } from './fleet-terminal';
+import type { WslProcessOwnership } from './wsl-process-ownership';
 
 const MAX_TABS = 4;
 const MAX_INPUT_CHARS = 64 * 1024;
@@ -70,6 +71,7 @@ export interface TerminalManagerOptions {
   onWorkspace?(state: TerminalWorkspaceState): void;
   spawnPty?: (command: string, args: string[], options: nodePty.IPtyForkOptions) => PtyProcess;
   resolveWslExecutable?: () => string;
+  processOwnership?: WslProcessOwnership;
 }
 
 interface ManagedTab {
@@ -460,6 +462,7 @@ export class TerminalManager {
         env: terminalEnvironment()
       });
       tab.process = process;
+      this.options.processOwnership?.own(`terminal:${tab.descriptor.id}`, process);
       tab.reconnectIndex = 0;
       tab.descriptor.status = 'live';
       tab.descriptor.statusMessage = 'Live';
@@ -469,6 +472,7 @@ export class TerminalManager {
         else this.bufferData(tab, data);
       });
       process.onExit(({ exitCode }) => {
+        this.options.processOwnership?.forget(process);
         if (generation !== tab.generation || tab.closed || this.quitting) return;
         tab.process = null;
         const stillExists = Boolean(this.options.resolveSession(tab.descriptor.sessionId)?.internalName);
@@ -513,7 +517,10 @@ export class TerminalManager {
     tab.process = null;
     if (!process) return;
     tab.generation += 1;
-    try { process.kill(); } catch { /* already exited */ }
+    const cause = tab.closed ? 'tmux_kill' : this.quitting ? 'app_shutdown' : 'host_restart';
+    if (!this.options.processOwnership?.release(process, cause)) {
+      try { process.kill(); } catch { /* already exited */ }
+    }
   }
 
   private bufferData(tab: ManagedTab, data: string): void {

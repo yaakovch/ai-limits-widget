@@ -3,8 +3,14 @@ export const RELEASE_SET_MAX_BYTES = 256 * 1024;
 
 export type ReleaseComponentId =
   | 'windowsApp' | 'androidApp' | 'clientRuntime' | 'hostRuntime' | 'providerAdapters' | 'contracts';
+export type ProviderAdapterId = 'codex' | 'claude' | 'copilot' | 'shell';
 
 export interface ReleaseProtocolRange { minimum: number; maximum: number }
+export interface ProviderUnitVersion { sequence: number; version: string }
+export interface ProviderAdapterVersion {
+  parser: ProviderUnitVersion;
+  actions: ProviderUnitVersion;
+}
 export interface ReleaseComponent {
   sequence: number;
   version: string;
@@ -39,6 +45,7 @@ export interface AgentFleetReleaseSet {
     workspaceLayout: ReleaseProtocolRange;
   };
   components: Record<ReleaseComponentId, ReleaseComponent>;
+  providerAdapterVersions: Record<ProviderAdapterId, ProviderAdapterVersion>;
   artifacts: ReleaseArtifact[];
   rollbackFloor: {
     releaseSetSequence: number;
@@ -50,7 +57,9 @@ export interface AgentFleetReleaseSet {
 const COMPONENTS: ReleaseComponentId[] = [
   'windowsApp', 'androidApp', 'clientRuntime', 'hostRuntime', 'providerAdapters', 'contracts'
 ];
+const PROVIDERS: ProviderAdapterId[] = ['codex', 'claude', 'copilot', 'shell'];
 const VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;
+const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+$/u;
 const TOKEN = /^[a-z][a-z0-9._-]{0,95}$/u;
 
 export function parseAgentFleetReleaseSetJson(text: string): AgentFleetReleaseSet {
@@ -66,7 +75,7 @@ export function parseAgentFleetReleaseSetJson(text: string): AgentFleetReleaseSe
 export function parseAgentFleetReleaseSet(input: unknown): AgentFleetReleaseSet {
   const value = exact(input, [
     'schemaVersion', 'releaseSetSequence', 'issuedAt', 'expiresAt', 'contractPackageVersion',
-    'protocols', 'components', 'artifacts', 'rollbackFloor', 'signature'
+    'protocols', 'components', 'providerAdapterVersions', 'artifacts', 'rollbackFloor', 'signature'
   ]);
   if (value.schemaVersion !== RELEASE_SET_SCHEMA_VERSION) fail('schema version is unsupported');
   const releaseSetSequence = integer(value.releaseSetSequence, 1, Number.MAX_SAFE_INTEGER, 'sequence');
@@ -95,6 +104,14 @@ export function parseAgentFleetReleaseSet(input: unknown): AgentFleetReleaseSet 
       }
     }
   }
+  const providerValue = exact(value.providerAdapterVersions, PROVIDERS);
+  const providerAdapterVersions = Object.fromEntries(PROVIDERS.map((id) => {
+    const adapter = exact(providerValue[id], ['parser', 'actions']);
+    return [id, {
+      parser: providerUnitVersion(adapter.parser, `${id} parser`),
+      actions: providerUnitVersion(adapter.actions, `${id} actions`)
+    }];
+  })) as Record<ProviderAdapterId, ProviderAdapterVersion>;
 
   if (!Array.isArray(value.artifacts) || value.artifacts.length > 64) fail('artifacts are invalid');
   const artifactIds = new Set<string>();
@@ -148,7 +165,15 @@ export function parseAgentFleetReleaseSet(input: unknown): AgentFleetReleaseSet 
   };
   return {
     schemaVersion: 1, releaseSetSequence, issuedAt, expiresAt, contractPackageVersion,
-    protocols, components, artifacts, rollbackFloor, signature
+    protocols, components, providerAdapterVersions, artifacts, rollbackFloor, signature
+  };
+}
+
+function providerUnitVersion(input: unknown, label: string): ProviderUnitVersion {
+  const value = exact(input, ['sequence', 'version']);
+  return {
+    sequence: integer(value.sequence, 1, Number.MAX_SAFE_INTEGER, `${label} sequence`),
+    version: pattern(value.version, SEMVER, `${label} version`)
   };
 }
 

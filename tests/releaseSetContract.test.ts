@@ -12,7 +12,7 @@ describe('Agent Fleet canonical contract fixtures', () => {
     const lock = JSON.parse(fixture('contract-lock-v1.json')) as {
       schemaVersion: number; packageVersion: string; algorithm: string; files: Record<string, string>
     };
-    expect(lock).toMatchObject({ schemaVersion: 1, packageVersion: '1.7.0', algorithm: 'sha256' });
+    expect(lock).toMatchObject({ schemaVersion: 1, packageVersion: '1.8.0', algorithm: 'sha256' });
     const fixtures = {
       'fixtures/invalid/activation-journal-content-field-v1.json': 'activation-journal-content-field-v1.json',
       'fixtures/invalid/activation-journal-unknown-field-v1.json': 'activation-journal-unknown-field-v1.json',
@@ -56,6 +56,10 @@ describe('Agent Fleet canonical contract fixtures', () => {
   it('accepts the shared release set and base fleet snapshot', () => {
     const release = parseAgentFleetReleaseSetJson(fixture('release-set-v1.json'));
     expect(release.releaseSetSequence).toBe(1083);
+    expect(release.providerAdapterVersions.codex).toEqual({
+      parser: { sequence: 3, version: '3.0.0' },
+      actions: { sequence: 2, version: '2.0.0' }
+    });
     expect(release.artifacts.map((item) => item.component)).toEqual([
       'windowsApp', 'androidApp', 'clientRuntime', 'clientRuntime'
     ]);

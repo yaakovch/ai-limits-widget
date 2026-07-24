@@ -12,9 +12,9 @@ import type { FleetModelControlState, FleetModelOption } from '../../shared/flee
 import { isFleetSessionAvailable, reconcileHiddenUnavailableSessions, sessionIdentityPresentation } from '../../shared/fleet';
 import type {
   ConversationAnswer, ConversationFrame, ConversationItem, ConversationQuestion, ProviderActivity, StagedAttachment,
-  ToolPresentationBlock
+  ProviderState, ToolPresentationBlock
 } from '../../shared/conversation';
-import { mergeConversationItems, resolveConversationScroll } from '../../shared/conversation';
+import { mergeConversationItems, resolveConversationScroll, unavailableProviderState } from '../../shared/conversation';
 import {
   canSuggestForComposer,
   canSuggestForQuestion,
@@ -71,6 +71,7 @@ interface NativeState {
   interactionMode: string;
   connection: string;
   providerActivity: ProviderActivity | null;
+  providerState: ProviderState;
   providerActivityReceivedAt: number;
   nextCursor: string | null;
   hasMore: boolean;
@@ -1405,6 +1406,7 @@ export class SessionWorkspace {
     let state = this.nativeStates.get(tabId);
     if (!state) {
       state = { items: [], interactionMode: 'unknown', connection: 'Connecting…', providerActivity: null,
+        providerState: unavailableProviderState(),
         providerActivityReceivedAt: 0, nextCursor: null,
         hasMore: false, loadingOlder: false, error: '', attachments: [], notice: '', draft: '',
         scrollTop: 0, scrollHeight: 0, scrollInitialized: false, followOutput: true, newMessages: false,
@@ -1466,11 +1468,13 @@ export class SessionWorkspace {
       state.interactionMode = frame.interactionMode ?? 'unknown';
       state.providerActivity = Object.prototype.hasOwnProperty.call(frame, 'providerActivity') ? frame.providerActivity ?? null : null;
       state.providerActivityReceivedAt = state.providerActivity ? Date.now() : 0;
+      state.providerState = frame.providerState ?? unavailableProviderState();
       state.connection = 'Live'; state.error = '';
       state.nextCursor = frame.nextCursor ?? null; state.hasMore = Boolean(frame.hasMore); state.loadingOlder = false;
     } else if (frame.type === 'conversation.event' && frame.item) {
       state.renderMode = 'append';
       state.items = mergeItems(state.items, [frame.item]); state.connection = 'Live'; state.error = '';
+      if (frame.providerState) state.providerState = frame.providerState;
     } else if (frame.type === 'conversation.error') {
       state.connection = 'Unavailable'; state.error = frame.error?.message ?? 'Native view is unavailable';
     } else {
@@ -1479,13 +1483,16 @@ export class SessionWorkspace {
         ? frame.interactionMode : state.interactionMode;
       const hasProviderActivity = Object.prototype.hasOwnProperty.call(frame, 'providerActivity');
       const providerChanged = hasProviderActivity && !sameProviderActivity(state.providerActivity, frame.providerActivity ?? null);
-      if (connection === state.connection && interactionMode === state.interactionMode && !providerChanged) return;
+      const confidenceChanged = Boolean(frame.providerState)
+        && JSON.stringify(frame.providerState) !== JSON.stringify(state.providerState);
+      if (connection === state.connection && interactionMode === state.interactionMode && !providerChanged && !confidenceChanged) return;
       state.connection = connection;
       state.interactionMode = interactionMode;
       if (hasProviderActivity) {
         state.providerActivity = frame.providerActivity ?? null;
         state.providerActivityReceivedAt = state.providerActivity ? Date.now() : 0;
       }
+      if (frame.providerState) state.providerState = frame.providerState;
     }
     const activeQuestionIds = new Set(state.items.filter((item) => item.kind === 'question' && item.state !== 'complete').map((item) => item.id));
     for (const id of state.submittingQuestions) if (!activeQuestionIds.has(id)) state.submittingQuestions.delete(id);
@@ -1544,6 +1551,7 @@ export class SessionWorkspace {
     );
     return `<div class="native-conversation ${state.interactionMode === 'plan' ? 'planning' : ''}" data-native-tab="${escapeAttr(tab.id)}">
       <div class="native-conversation-header"><span><i class="terminal-status status-${state.connection === 'Live' ? 'live' : 'offline'}"></i><span data-provider-activity-tab="${escapeAttr(tab.id)}">${escapeHtml(providerActivityText(tab.tool, state.providerActivity, state.providerActivityReceivedAt) || state.connection)}</span></span>${state.interactionMode === 'plan' ? '<b>Planning mode</b>' : ''}</div>
+      ${state.providerState.mutationsAllowed ? '' : `<div class="native-error"><strong>${state.providerState.fallback === 'terminal_only' ? 'Terminal-only provider state' : 'Native view is read-only'}</strong><span>${escapeHtml(providerConfidenceMessage(state.providerState))}</span></div>`}
       <div class="native-messages" data-native-scroll-tab="${escapeAttr(tab.id)}">
         ${state.hasMore ? `<button class="load-older" data-action="native-load-older" data-workspace-action ${state.loadingOlder ? 'disabled' : ''}>${state.loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>` : ''}
         ${state.error ? `<div class="native-error"><strong>Native view needs attention</strong><span>${escapeHtml(state.error)}</span><button data-action="native-retry" data-workspace-action>Retry</button></div>` : ''}
@@ -1563,8 +1571,9 @@ export class SessionWorkspace {
         localSuggestionsEnabled(this.localSuggestionSettings.mode) ? state.suggestion : undefined, this.localSuggestionSettings.mode)
       : renderConversationItem(item);
     const label = item.kind === 'question' ? (item.title || 'Answer needed') : (item.title || 'Approval needed');
-    return `<section class="native-answer-bar ${state.interactionMode === 'plan' ? 'planning' : ''}" data-conversation-item="${escapeAttr(item.id)}"><button data-action="native-question-open" data-workspace-action><span><strong>${escapeHtml(label)}</strong><small>Tap to respond</small></span><b>Open</b></button></section>
-      ${state.questionSheetId === item.id ? `<div class="native-sheet-backdrop"><section class="native-question-sheet"><header><span><strong>Action needed</strong><small>Complete this to continue the session</small></span><button class="quiet-button" data-action="native-question-close" data-workspace-action aria-label="Close">×</button></header>${content}</section></div>` : ''}`;
+    const allowed = state.providerState.mutationsAllowed;
+    return `<section class="native-answer-bar ${state.interactionMode === 'plan' ? 'planning' : ''}" data-conversation-item="${escapeAttr(item.id)}"><button data-action="native-question-open" data-workspace-action ${allowed ? '' : 'disabled'}><span><strong>${escapeHtml(label)}</strong><small>${allowed ? 'Tap to respond' : 'Open Terminal to respond'}</small></span><b>${allowed ? 'Open' : 'Read-only'}</b></button></section>
+      ${allowed && state.questionSheetId === item.id ? `<div class="native-sheet-backdrop"><section class="native-question-sheet"><header><span><strong>Action needed</strong><small>Complete this to continue the session</small></span><button class="quiet-button" data-action="native-question-close" data-workspace-action aria-label="Close">×</button></header>${content}</section></div>` : ''}`;
   }
 
   private renderComposer(tab: TerminalTabDescriptor, state: NativeState): string {
@@ -1712,8 +1721,15 @@ export class SessionWorkspace {
 
   private async approve(item: ConversationItem, choice: string): Promise<void> {
     if (!item.revision) return;
-    const result = await window.limitsWidget.approveConversation(this.selectedId, item.id, choice, item.revision);
-    const state = this.nativeState(this.selectedId); state.notice = result.message;
+    const state = this.nativeState(this.selectedId);
+    if (!state.providerState.mutationsAllowed) {
+      state.notice = 'Native actions are read-only for this provider state. Open Terminal to respond.';
+      this.renderSelectedNative(); return;
+    }
+    const result = await window.limitsWidget.approveConversation(
+      this.selectedId, item.id, choice, item.revision, state.providerState.eventPosition
+    );
+    state.notice = result.message;
     if (result.ok) state.items = mergeItems(state.items, [{ ...item, state: 'complete', title: 'Approval sent' }]);
     this.renderSelectedNative();
   }
@@ -1722,6 +1738,10 @@ export class SessionWorkspace {
     if (!item.revision || !item.questions?.length) return;
     this.captureVisibleQuestionDraft(item.id);
     const state = this.nativeState(this.selectedId);
+    if (!state.providerState.mutationsAllowed) {
+      state.notice = 'Native actions are read-only for this provider state. Open Terminal to respond.';
+      this.renderSelectedNative(); return;
+    }
     const answers = state.questionDrafts.get(item.id) ?? [];
     for (const question of item.questions) {
       const answer = answers.find((value) => value.questionId === question.id);
@@ -1735,7 +1755,9 @@ export class SessionWorkspace {
     state.submittingQuestions.add(item.id);
     state.notice = 'Submitting answers…';
     this.renderSelectedNative();
-    const result = await window.limitsWidget.answerConversation(this.selectedId, item.id, item.revision, answers);
+    const result = await window.limitsWidget.answerConversation(
+      this.selectedId, item.id, item.revision, state.providerState.eventPosition, answers
+    );
     state.notice = result.message;
     if (result.ok) state.items = mergeItems(state.items, [{ ...item, state: 'running', title: 'Answer sent…', answers }]);
     else state.submittingQuestions.delete(item.id);
@@ -1966,10 +1988,15 @@ export class SessionWorkspace {
   }
   private async sendMessage(): Promise<void> {
     if (!this.selectedId) return;
+    const state = this.nativeState(this.selectedId);
+    if (!state.providerState.mutationsAllowed) {
+      state.notice = 'Native input is read-only for this provider state. Open Terminal to send.';
+      this.renderSelectedNative(); return;
+    }
     const input = this.element.querySelector<HTMLTextAreaElement>(`[data-native-host="${CSS.escape(this.selectedId)}"] [data-native-message]`);
     const text = input?.value ?? '';
     const result = await window.limitsWidget.sendConversationMessage(this.selectedId, text);
-    const state = this.nativeState(this.selectedId); state.notice = result.message;
+    state.notice = result.message;
     if (result.ok) { state.attachments = []; state.draft = ''; if (input) input.value = ''; }
     this.renderSelectedNative();
   }
@@ -2449,6 +2476,13 @@ export function providerActivityText(
     : minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
   const provider = tool ? `${tool.charAt(0).toUpperCase()}${tool.slice(1)}` : 'Agent';
   return `${provider} · ${activity.label} (${duration})`;
+}
+
+function providerConfidenceMessage(state: ProviderState): string {
+  if (state.confidence === 'reconstructed') return 'Provider output was reconstructed, so actions are disabled until a verified update arrives.';
+  if (state.confidence === 'stale') return 'Provider state changed or became stale; refresh Native view or continue in Terminal.';
+  if (state.confidence === 'unsupported') return 'This provider state cannot safely accept Native actions. Terminal remains available.';
+  return 'Provider state is verified.';
 }
 
 function prettyJson(value: string): string {

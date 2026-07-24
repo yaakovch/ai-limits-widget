@@ -27,6 +27,20 @@ describe('canonical conversation v2 contract', () => {
     expect(parseConversationFrame(JSON.stringify(parsed))).not.toBeNull();
   });
 
+  it('replays every provider confidence condition fail-closed', () => {
+    const corpus = JSON.parse(fixture('provider-confidence-replay-v1.json')) as {
+      cases: Array<{ adapter: string; condition: string; confidence: string; mutationsAllowed: boolean; fallback: string }>;
+    };
+    for (const adapter of ['codex', 'claude', 'copilot', 'shell']) {
+      const cases = corpus.cases.filter((value) => value.adapter === adapter);
+      expect(new Set(cases.map((value) => value.condition))).toEqual(new Set([
+        'current', 'truncated', 'reordered', 'partial', 'stale', 'mixed_version'
+      ]));
+      expect(cases.filter((value) => value.confidence !== 'verified')
+        .every((value) => !value.mutationsAllowed && value.fallback !== 'none')).toBe(true);
+    }
+  });
+
   it.each(['conversation-unknown-field-v2.json', 'conversation-item-unknown-field-v2.json'])(
     'rejects shared invalid fixture %s', (name) => {
       expect(parseConversationFrame(fixture(name))).toBeNull();
