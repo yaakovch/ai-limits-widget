@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createDiagnosticsEntries } from '../src/main/diagnostics';
 import {
   assertLayeredDiagnosticReport,
+  createLegacyUsage,
   createWindowsLayeredDiagnostics,
   DIAGNOSTIC_LAYERS
 } from '../src/shared/layered-diagnostics';
@@ -45,6 +46,36 @@ describe('layered diagnostics v2', () => {
     expect(report.checks.map((check) => check.layer)).toEqual(DIAGNOSTIC_LAYERS);
     expect(report.checks.every((check) => check.readOnly)).toBe(true);
     expect(report.checks.find((check) => check.layer === 'tailnet')?.errorCode).toBe('TAILNET_UNAVAILABLE');
+    expect(report.legacyUsage).toEqual({
+      successfulReleaseCycles: 0,
+      migrationVerification: {
+        registeredHosts: 0, verifiedHosts: 0, registeredClients: 1, verifiedClients: 1
+      },
+      signals: {
+        syntheticWindowsIdentities: 0, ambientRuntimeResolutions: 0,
+        androidOneShotControlStarts: 0, legacyConfigFields: 0
+      },
+      removalEligible: false,
+      blockers: ['release_cycles', 'host_migration']
+    });
+  });
+
+  it('only declares legacy removal eligible from two clean verified release cycles', () => {
+    const eligible = createLegacyUsage({
+      successfulReleaseCycles: 2,
+      registeredHosts: 3,
+      verifiedHosts: 3,
+      registeredClients: 2,
+      verifiedClients: 2,
+      syntheticWindowsIdentities: 0,
+      ambientRuntimeResolutions: 0,
+      androidOneShotControlStarts: 0,
+      legacyConfigFields: 0
+    });
+    expect(eligible).toMatchObject({ removalEligible: true, blockers: [] });
+    const report = createWindowsLayeredDiagnostics(input());
+    const forged = { ...report, legacyUsage: { ...report.legacyUsage, removalEligible: true } };
+    expect(() => assertLayeredDiagnosticReport(forged)).toThrow();
   });
 
   it('accepts the canonical fixture and rejects path or content fields', () => {

@@ -33,7 +33,40 @@ export interface LayeredDiagnosticReport {
   generatedAt: string;
   totalDurationMs: number;
   components: Array<{ id: string; version: string }>;
+  legacyUsage: LegacyUsage;
   checks: LayeredDiagnosticCheck[];
+}
+
+export type LegacyRemovalBlocker = 'release_cycles' | 'host_migration' | 'client_migration' | 'legacy_usage';
+
+export interface LegacyUsageInput {
+  successfulReleaseCycles: number;
+  registeredHosts: number;
+  verifiedHosts: number;
+  registeredClients: number;
+  verifiedClients: number;
+  syntheticWindowsIdentities: number;
+  ambientRuntimeResolutions: number;
+  androidOneShotControlStarts: number;
+  legacyConfigFields: number;
+}
+
+export interface LegacyUsage {
+  successfulReleaseCycles: number;
+  migrationVerification: {
+    registeredHosts: number;
+    verifiedHosts: number;
+    registeredClients: number;
+    verifiedClients: number;
+  };
+  signals: {
+    syntheticWindowsIdentities: number;
+    ambientRuntimeResolutions: number;
+    androidOneShotControlStarts: number;
+    legacyConfigFields: number;
+  };
+  removalEligible: boolean;
+  blockers: LegacyRemovalBlocker[];
 }
 
 export interface WindowsLayeredDiagnosticsInput {
@@ -46,6 +79,7 @@ export interface WindowsLayeredDiagnosticsInput {
   terminal: TerminalHealth;
   wslRuntime: WslRuntimeState;
   updateConfigured: boolean;
+  legacyUsage?: LegacyUsageInput;
 }
 
 const LABELS: Record<DiagnosticLayer, string> = {
@@ -124,6 +158,19 @@ export function createWindowsLayeredDiagnostics(input: WindowsLayeredDiagnostics
       { id: 'client-runtime', version: safeVersion(input.wslRuntime.current || input.wslRuntime.embeddedVersion) },
       { id: 'contracts', version: safeVersion(input.wslRuntime.contractPackageVersion) }
     ],
+    legacyUsage: createLegacyUsage(input.legacyUsage ?? {
+      successfulReleaseCycles: 0,
+      registeredHosts: input.fleet.snapshot.physicalHosts.length,
+      verifiedHosts: 0,
+      registeredClients: 1,
+      verifiedClients: 1,
+      syntheticWindowsIdentities: input.fleet.snapshot.physicalHosts
+        .flatMap((host) => host.legacyHostIds)
+        .filter((id) => id.endsWith('_windows')).length,
+      ambientRuntimeResolutions: 0,
+      androidOneShotControlStarts: 0,
+      legacyConfigFields: 0
+    }),
     checks
   };
   assertLayeredDiagnosticReport(report);
@@ -131,7 +178,10 @@ export function createWindowsLayeredDiagnostics(input: WindowsLayeredDiagnostics
 }
 
 export function assertLayeredDiagnosticReport(input: unknown): asserts input is LayeredDiagnosticReport {
-  const root = exact(input, ['schemaVersion', 'correlationId', 'generatedAt', 'totalDurationMs', 'components', 'checks']);
+  const root = exact(input, [
+    'schemaVersion', 'correlationId', 'generatedAt', 'totalDurationMs',
+    'components', 'legacyUsage', 'checks'
+  ]);
   if (root.schemaVersion !== 2 || typeof root.correlationId !== 'string'
     || !/^diag-[a-f0-9]{32}$/u.test(root.correlationId)
     || typeof root.generatedAt !== 'string' || !Number.isFinite(Date.parse(root.generatedAt))
@@ -141,6 +191,7 @@ export function assertLayeredDiagnosticReport(input: unknown): asserts input is 
     const value = exact(component, ['id', 'version']);
     if (!token(value.id) || !text(value.version, 128)) invalid();
   });
+  assertLegacyUsage(root.legacyUsage);
   const layers = new Set<DiagnosticLayer>();
   root.checks.forEach((item) => {
     const value = exact(item, [
@@ -160,6 +211,65 @@ export function assertLayeredDiagnosticReport(input: unknown): asserts input is 
   });
   if (DIAGNOSTIC_LAYERS.some((layer) => !layers.has(layer))) invalid();
   rejectPrivateFields(root);
+}
+
+export function createLegacyUsage(input: LegacyUsageInput): LegacyUsage {
+  const values = Object.values(input);
+  if (values.some((value) => !boundedCount(value))
+    || input.successfulReleaseCycles > 1024
+    || input.verifiedHosts > input.registeredHosts
+    || input.verifiedClients > input.registeredClients) invalid();
+  const blockers: LegacyRemovalBlocker[] = [];
+  if (input.successfulReleaseCycles < 2) blockers.push('release_cycles');
+  if (input.registeredHosts < 1 || input.verifiedHosts !== input.registeredHosts) blockers.push('host_migration');
+  if (input.registeredClients < 1 || input.verifiedClients !== input.registeredClients) blockers.push('client_migration');
+  const signals = {
+    syntheticWindowsIdentities: input.syntheticWindowsIdentities,
+    ambientRuntimeResolutions: input.ambientRuntimeResolutions,
+    androidOneShotControlStarts: input.androidOneShotControlStarts,
+    legacyConfigFields: input.legacyConfigFields
+  };
+  if (Object.values(signals).some((value) => value > 0)) blockers.push('legacy_usage');
+  return {
+    successfulReleaseCycles: input.successfulReleaseCycles,
+    migrationVerification: {
+      registeredHosts: input.registeredHosts,
+      verifiedHosts: input.verifiedHosts,
+      registeredClients: input.registeredClients,
+      verifiedClients: input.verifiedClients
+    },
+    signals,
+    removalEligible: blockers.length === 0,
+    blockers
+  };
+}
+
+function assertLegacyUsage(input: unknown): asserts input is LegacyUsage {
+  const value = exact(input, [
+    'successfulReleaseCycles', 'migrationVerification', 'signals', 'removalEligible', 'blockers'
+  ]);
+  const migration = exact(value.migrationVerification, [
+    'registeredHosts', 'verifiedHosts', 'registeredClients', 'verifiedClients'
+  ]);
+  const signals = exact(value.signals, [
+    'syntheticWindowsIdentities', 'ambientRuntimeResolutions',
+    'androidOneShotControlStarts', 'legacyConfigFields'
+  ]);
+  const expected = createLegacyUsage({
+    successfulReleaseCycles: value.successfulReleaseCycles as number,
+    registeredHosts: migration.registeredHosts as number,
+    verifiedHosts: migration.verifiedHosts as number,
+    registeredClients: migration.registeredClients as number,
+    verifiedClients: migration.verifiedClients as number,
+    syntheticWindowsIdentities: signals.syntheticWindowsIdentities as number,
+    ambientRuntimeResolutions: signals.ambientRuntimeResolutions as number,
+    androidOneShotControlStarts: signals.androidOneShotControlStarts as number,
+    legacyConfigFields: signals.legacyConfigFields as number
+  });
+  if (value.removalEligible !== expected.removalEligible
+    || !Array.isArray(value.blockers)
+    || value.blockers.length !== expected.blockers.length
+    || value.blockers.some((blocker, index) => blocker !== expected.blockers[index])) invalid();
 }
 
 function doctorEvidence(doctors: readonly FleetDoctorResult[], ids: readonly string[]): 'healthy' | 'failure' | 'missing' {
@@ -223,6 +333,9 @@ function text(value: unknown, maximum: number): boolean {
   return typeof value === 'string' && value.length <= maximum && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 function duration(value: unknown): boolean { return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 300_000; }
+function boundedCount(value: unknown): boolean {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 1_000_000;
+}
 function boundedDuration(value: number): number { return Math.max(0, Math.min(300_000, Math.round(value))); }
 function rejectPrivateFields(value: unknown): void {
   if (Array.isArray(value)) { value.forEach(rejectPrivateFields); return; }
