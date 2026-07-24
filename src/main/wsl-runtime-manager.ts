@@ -168,16 +168,18 @@ export class WslRuntimeManager {
   private async bootstrap(action: 'install', descriptor: RuntimeDescriptor): Promise<void> {
     const bundle = join(this.options.resourcesRoot, 'runtime', descriptor.runtime.file);
     const shell = [
-      'bundle="$(wslpath -a "$1")"',
+      'set -eu',
+      `bundle="$(wslpath -a ${shellQuote(bundle)})"`,
       'staging="$(mktemp -d)"',
       "trap 'rm -rf -- \"$staging\"' EXIT",
       'tar -xf "$bundle" -C "$staging" scripts/wtmux-runtime',
-      'python3 "$staging/scripts/wtmux-runtime" "$2" --bundle "$bundle" --sha256 "$3"',
-      `--root ${ACTIVATED_RUNTIME_ROOT} --bin-dir .local/share/agent-fleet/bin`
-    ].join(' ');
+      `python3 "$staging/scripts/wtmux-runtime" ${shellQuote(action)}`
+        + ` --bundle "$bundle" --sha256 ${shellQuote(descriptor.runtime.sha256)}`
+        + ` --root ${shellQuote(ACTIVATED_RUNTIME_ROOT)}`
+        + ` --bin-dir ${shellQuote('.local/share/agent-fleet/bin')}`
+    ].join('; ');
     await this.run('wsl.exe', [
-      '-d', this.options.distro(), '--cd', '~', '--', 'sh', '-lc', shell,
-      'agent-fleet-runtime-bootstrap', bundle, action, descriptor.runtime.sha256
+      '-d', this.options.distro(), '--cd', '~', '--exec', 'sh', '-lc', shell
     ], 120_000);
   }
 
@@ -278,4 +280,8 @@ function httpsUrl(value: unknown): value is string {
 }
 function readableError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }

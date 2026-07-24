@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0-beta.22 - 2026-07-24
+
+- Adopted the canonical identity, supervisor, transport, host-runtime, fleet
+  configuration, diagnostics, provider-confidence, and compatibility-removal
+  contracts shared with Android and wtmux.
+- Provisioned the verified app-owned WSL runtime `git-a6a87ae` with independent
+  component sequences, immutable activation slots, repair, and rollback.
+- Added physical-host session grouping, converged transport health, layered
+  redacted diagnostics, and explicit legacy-removal readiness blockers.
+
 ## 0.11.0-beta.20 - 2026-07-19
 
 - Reused the coding-agent titles already shown by tmux and VS Code throughout

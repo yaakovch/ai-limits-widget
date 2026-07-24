@@ -64,7 +64,15 @@ describe('app-owned WSL runtime manager', () => {
         return { stdout: JSON.stringify(readyStatus()), stderr: '' };
       }
       expect(args).toContain('sh');
+      expect(args).toContain('--exec');
+      expect(args).not.toContain('--');
       expect(args.join(' ')).toContain('wslpath');
+      const shell = args[args.indexOf('-lc') + 1];
+      expect(shell.split('; ')).toHaveLength(6);
+      expect(shell).toContain('; tar -xf "$bundle"');
+      expect(shell).toContain('; python3 "$staging/scripts/wtmux-runtime"');
+      expect(shell).toContain(' --root \'.local/share/agent-fleet/wtmux\'');
+      expect(args.at(-1)).toBe(shell);
       installed = true;
       return { stdout: '{}', stderr: '' };
     });
