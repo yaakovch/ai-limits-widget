@@ -5,7 +5,12 @@ export const CONTRACT_PACKAGE_VERSION = GENERATED_CONTRACT_PACKAGE_VERSION;
 export const SUPPORTED_CONTROL_VERSIONS = [GENERATED_PROTOCOL_VERSIONS.control] as const;
 export const SUPPORTED_CONVERSATION_VERSIONS = [GENERATED_PROTOCOL_VERSIONS.conversation] as const;
 export const SUPPORTED_WORKSPACE_LAYOUT_VERSIONS = [GENERATED_PROTOCOL_VERSIONS['workspace-layout']] as const;
-export const CONTRACT_CAPABILITIES = ['control.v1', 'conversation.v2', 'workspace-layout.v1'] as const;
+export const CONTRACT_CAPABILITIES = [
+  'control.v1',
+  'conversation.v2',
+  'workspace-layout.v1',
+  'host-runtime.v1'
+] as const;
 const MAX_DOCUMENT_BYTES = 64 * 1024;
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/u;
 const PRIVATE_FIELDS = new Set(['message', 'prompt', 'output', 'transcript', 'panetitle', 'command']);

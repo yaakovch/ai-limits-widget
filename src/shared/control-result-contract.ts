@@ -6,6 +6,7 @@ import {
   parseFleetRepositoryPage
 } from './fleet-protocol';
 import { GENERATED_OBJECT_SHAPES } from './generated/agent-fleet-contracts';
+import { HOST_RUNTIME_RECOVERY } from './host-runtime-contract';
 
 const MAX_RESULT_BYTES = 256 * 1024;
 const MAX_NESTING_DEPTH = 16;
@@ -39,6 +40,27 @@ export function parseAgentFleetControlResultsFixtureJson(input: string): unknown
 function validateCapabilities(value: Record<string, unknown>): void {
   shape(value, 'control-results-v1:#/$defs/capabilityBase');
   if (('agentVersion' in value) === ('bridgeVersion' in value)) fail('capability component identity is invalid');
+  if ('agentVersion' in value) {
+    const runtime = shaped(value.hostRuntime, 'control-results-v1:#/$defs/hostRuntime');
+    if (runtime.entrypoint !== 'wtmux-host-runtime') fail('stable host entrypoint is unavailable');
+    versions(runtime.apiVersions);
+    if (!Array.isArray(runtime.apiVersions) || runtime.apiVersions.length !== 1 || runtime.apiVersions[0] !== 1) {
+      fail('stable host API is unavailable');
+    }
+    stringArray(runtime.errorCodes, 32);
+    const controlErrorCodes = Object.keys(HOST_RUNTIME_RECOVERY).filter((code) => code === code.toLowerCase());
+    if (!Array.isArray(runtime.errorCodes)
+      || runtime.errorCodes.length !== controlErrorCodes.length
+      || runtime.errorCodes.some((code) => typeof code !== 'string' || !controlErrorCodes.includes(code))) {
+      fail('host runtime error contract is incompatible');
+    }
+    const budgets = shaped(runtime.resourceBudgets, 'control-results-v1:#/$defs/hostRuntimeBudgets');
+    if (budgets.maxControlFrameBytes !== MAX_RESULT_BYTES || budgets.maxInFlightControl !== 1
+      || budgets.maxHelperOutputBytes !== 256 * 1024 || budgets.maxHelperErrorBytes !== 8 * 1024
+      || budgets.maxChildProcessesPerControl !== 1 || budgets.maxOperationTimeoutMs !== 120_000) {
+      fail('host runtime budgets are unsafe');
+    }
+  } else if ('hostRuntime' in value) fail('bridge capabilities cannot impersonate a host runtime');
   if (value.protocolVersion !== 1 || typeof value.contractPackageVersion !== 'string') fail('capability versions are invalid');
   for (const name of ['controlVersions', 'conversationVersions', 'workspaceLayoutVersions']) versions(value[name]);
   stringArray(value.methods, 64); stringArray(value.events, 16);

@@ -5,14 +5,15 @@ export interface GeneratedStructuralShape {
   readonly rejectUnknown?: boolean;
 }
 
-export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.4.0";
+export const GENERATED_CONTRACT_PACKAGE_VERSION = "1.5.0";
 export const GENERATED_PROTOCOL_VERSIONS = {
   "control": 1,
   "conversation": 2,
   "workspace-layout": 1,
   "release-set": 1,
   "supervisor": 1,
-  "transport": 1
+  "transport": 1,
+  "host-runtime": 1
 } as const;
 export const GENERATED_OBJECT_SHAPES = {
   "activation-journal-v1:#": {
@@ -102,7 +103,8 @@ export const GENERATED_OBJECT_SHAPES = {
     ],
     "optional": [
       "agentVersion",
-      "bridgeVersion"
+      "bridgeVersion",
+      "hostRuntime"
     ],
     "rejectUnknown": true
   },
@@ -167,6 +169,28 @@ export const GENERATED_OBJECT_SHAPES = {
     "required": [
       "id",
       "label"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/hostRuntime": {
+    "required": [
+      "apiVersions",
+      "entrypoint",
+      "errorCodes",
+      "resourceBudgets"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "control-results-v1:#/$defs/hostRuntimeBudgets": {
+    "required": [
+      "maxChildProcessesPerControl",
+      "maxControlFrameBytes",
+      "maxHelperErrorBytes",
+      "maxHelperOutputBytes",
+      "maxInFlightControl",
+      "maxOperationTimeoutMs"
     ],
     "optional": [],
     "rejectUnknown": true
@@ -1141,6 +1165,80 @@ export const GENERATED_OBJECT_SHAPES = {
       "physicalHostId",
       "projectPath"
     ],
+    "rejectUnknown": true
+  },
+  "host-runtime-v1:#": {
+    "required": [
+      "apiVersion",
+      "channels",
+      "contractPackageVersion",
+      "entrypoint",
+      "errors",
+      "operations",
+      "resourceBudgets",
+      "schemaVersion",
+      "sessionIndex"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "host-runtime-v1:#/$defs/channel": {
+    "required": [
+      "framing",
+      "id",
+      "maxConcurrent",
+      "maxResponseBytes",
+      "privacy",
+      "protocol",
+      "timeoutMs",
+      "versions"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "host-runtime-v1:#/$defs/error": {
+    "required": [
+      "code",
+      "publicTitle",
+      "recoveryAction",
+      "retryClass"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "host-runtime-v1:#/$defs/operation": {
+    "required": [
+      "channel",
+      "errorDomain",
+      "id",
+      "mutationBinding"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "host-runtime-v1:#/$defs/resourceBudgets": {
+    "required": [
+      "maxArgumentBytes",
+      "maxArguments",
+      "maxChildProcessesPerControl",
+      "maxControlFrameBytes",
+      "maxHelperErrorBytes",
+      "maxHelperOutputBytes",
+      "maxImageBytes",
+      "maxInFlightControl",
+      "maxOperationTimeoutMs"
+    ],
+    "optional": [],
+    "rejectUnknown": true
+  },
+  "host-runtime-v1:#/$defs/sessionIndex": {
+    "required": [
+      "authority",
+      "killSwitch",
+      "reason",
+      "state"
+    ],
+    "optional": [],
     "rejectUnknown": true
   },
   "identity-graph-v1:#": {

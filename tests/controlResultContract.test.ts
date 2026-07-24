@@ -29,4 +29,14 @@ describe('canonical control result families', () => {
     for (let index = 0; index < 18; index += 1) nested = { nested };
     expect(() => assertAgentFleetControlResult(nested)).toThrow('nesting');
   });
+
+  it('requires the stable host runtime before session discovery', () => {
+    const values = JSON.parse(fixture('control-results-v1.json')).results as Array<Record<string, unknown>>;
+    const agent = structuredClone(values[0]);
+    (agent.hostRuntime as Record<string, unknown>).entrypoint = 'private-helper';
+    expect(() => assertAgentFleetControlResult(agent)).toThrow('stable host entrypoint');
+
+    const bridge = { ...structuredClone(values[1]), hostRuntime: structuredClone(values[0].hostRuntime) };
+    expect(() => assertAgentFleetControlResult(bridge)).toThrow('impersonate');
+  });
 });

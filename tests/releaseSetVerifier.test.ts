@@ -35,7 +35,7 @@ describe('signed release-set verification', () => {
   it('verifies the canonical signature, independent floors, origins, and installed app', () => {
     const signed = signedFixture();
     expect(verifyAgentFleetReleaseSet(signed.text, options(signed))).toMatchObject({
-      releaseSetSequence: 1082,
+      releaseSetSequence: 1083,
       components: { clientRuntime: { sequence: 45 }, androidApp: { sequence: 1076 } }
     });
   });
@@ -53,7 +53,7 @@ describe('signed release-set verification', () => {
       ...options(signed), now: new Date('2026-09-01T00:00:00Z')
     }), 'release_set_expired');
     expectCode(() => verifyAgentFleetReleaseSet(signed.text, {
-      ...options(signed), minimumReleaseSetSequence: 1083
+      ...options(signed), minimumReleaseSetSequence: 1084
     }), 'release_set_downgrade');
     expectCode(() => verifyAgentFleetReleaseSet(signed.text, {
       ...options(signed), installedWindowsVersion: 'different'
